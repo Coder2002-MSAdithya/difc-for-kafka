@@ -3852,3 +3852,10 @@ task aggregatedJavadoc(type: Javadoc, dependsOn: compileJava) {
   includes = projectsWithJavadoc.collectMany { it.javadoc.getIncludes() }
   excludes = projectsWithJavadoc.collectMany { it.javadoc.getExcludes() }
 }
+
+subprojects {
+    tasks.withType(Jar).configureEach {
+        destinationDirectory = rootProject.layout.buildDirectory.dir("libs")
+    }
+}
+
