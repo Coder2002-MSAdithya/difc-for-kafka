@@ -1,0 +1,64 @@
+I want to make by Kafka broker have a global Tag store.
+This is towards implementing DIFC (Decentralized Information Flow Control) in Kafka.
+
+The Tag store should maintain a set of Tags, each Tag has a unique name (string), a unique integer ID, and an owner client ID (string).
+Clients can have capabilities associated with tags, specifically the ability to add or remove tags.
+Each client has a unique client ID (string) and maintains sets of tags they can add, remove, or own.
+
+Clients CAN send messages with any of these tags by adding them to message headers... They have a certain label associated with them as a set of tags.
+They CAN only add tags to their label if they have the CAN_ADD capability for that tag.
+They CAN only remove tags from their label if they have the CAN_REMOVE capability for that tag.
+But if they own a tag, they can always add or remove it from their label.
+
+Clients CAN receive messages ONLY if their label (set of tags) is a superset of the message's tags.
+
+The Kafka broker must provide methods to create and destroy tags, check for tag existence, and manage client capabilities for tags.
+And the broker must ensure that all operations respect the constraints of tag ownership and capabilities.
+
+The broker MUST start with this Tag store initialized with some hardcoded clientIds and their associated capabilities for testing purposes.
+This initialization MUST ensure that there are at least 3 clients, each with different sets of tags and capabilities.
+The tags provided in the label set and canAdd and canRemove and owns sets MUST exist in the global Tag store, the set of tags...
+
+Namely I want:
+
+class Tag
+{
+    String tagName;
+    int tagId;
+    String ownerClient;
+}
+
+enum Capability
+{
+    CAN_ADD,
+    CAN_REMOVE,
+}
+
+class TagRegistrar
+{
+    Set<Tag> tags;  // A set of objects with structure Tag defined above..
+    Set<ClientDIFCRecord> clientDIFCPrivs; // Set of ClientDIFCPrivs records. Each client MUST have a unique clientId and thus a unique client record.
+    int createTag(String tagName, String owner); // Create/Allocate a tag in the set ONLY if the tag name does NOT exist..
+    // Maximum length of a DIFC tag name is 16 characters. Return tagId if created successfully, -1 if failed.
+    // Ensure that tagId is sufficiently of large bit length to avoid collisions.
+    int destroyTag(String tagName); // Destroy/Deallocate a tag in the set
+    // ONLY if the tag name exists and remove the tagName from all clients that own it, can ADD it or can REMOVE it.
+    int getTag(String tagName); // Check whether tag with the given name exists, return tagId if yes, -1 if no
+
+    int addClientPrivs(String clientId, String tagName, Capability cap); // Add the given tagName to the canAdd set of the given clientId if cap is CAN_ADD
+    // Add the given tagName to the canRemove set of the given clientId if cap is CAN_REMOVE
+    // Perform all basic checks.
+
+    int removeClientPrivs(String clientId, String tagName, Capability cap); // Remove the given tagName from the canAdd set of the given clientId if cap is CAN_ADD
+    // Remove the given tagName from the canRemove set of the given clientId if cap is CAN_REMOVE
+    // Perform all basic checks. (such as tag MUST already have been created)
+}
+
+class ClientDIFCPrivs
+{
+    String clientId; // Unique client ID (to be associated with an authenticated KafkaPrincipal later..)
+    Set<String> tags; // Set of tag names (strings). This is the label of the client..
+    Set<String> canAdd;
+    Set<String> canRemove;
+    Set<String> owns;
+}
