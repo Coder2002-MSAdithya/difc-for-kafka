@@ -5,8 +5,8 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class TagRegistrar
 {
-    public final Map<String, Tag> tagsByName = new ConcurrentHashMap<>();
-    public final Map<String, ClientDIFCPrivs> clientsById = new ConcurrentHashMap<>();
+    private final Map<String, Tag> tagsByName = new ConcurrentHashMap<>();
+    private final Map<String, ClientDIFCPrivs> clientsById = new ConcurrentHashMap<>();
 
     public TagRegistrar()
     {
@@ -138,4 +138,25 @@ public class TagRegistrar
         }
         return 0;
     }
+
+    public int getTagCount()
+    {
+        return tagsByName.size();
+    }
+
+    public boolean hasTag(String tagName)
+    {
+        return tagsByName.containsKey(tagName);
+    }
+
+    public int getClientCount()
+    {
+        return clientsById.size();
+    }
+
+    public ClientDIFCPrivs getClientPrivs(String clientId)
+    {
+        return clientsById.get(clientId);
+    }
+
 }
