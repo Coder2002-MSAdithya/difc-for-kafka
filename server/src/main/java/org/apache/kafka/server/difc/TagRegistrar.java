@@ -159,4 +159,22 @@ public class TagRegistrar
         return clientsById.get(clientId);
     }
 
+    @Override
+    public String toString()
+    {
+        StringBuilder sb = new StringBuilder();
+        sb.append("TagRegistrar{\n");
+        sb.append("  Tags (").append(tagsByName.size()).append("):\n");
+        for (Map.Entry<String, Tag> entry : tagsByName.entrySet())
+        {
+            sb.append("    ").append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
+        }
+        sb.append("  Clients (").append(clientsById.size()).append("):\n");
+        for (Map.Entry<String, ClientDIFCPrivs> entry : clientsById.entrySet())
+        {
+            sb.append("    ").append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
+        }
+        sb.append("}");
+        return sb.toString();
+    }
 }
