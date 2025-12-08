@@ -11,7 +11,7 @@ public final class Tag
     public final String ownerClient;
 
     private static final SecureRandom RNG = new SecureRandom();
-    private static final String NAME_PATTERN = "\"^[A-Za-z0-9_-]+$\"";
+    private static final String NAME_PATTERN = "^[A-Za-z0-9_-]+$";
     private static final int MAX_TAG_LENGTH = 16;
 
     public Tag(String tagName, String ownerClient)
