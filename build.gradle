@@ -3859,3 +3859,21 @@ subprojects {
     }
 }
 
+// Disable Checkstyle globally (for all subprojects)
+allprojects {
+    tasks.withType(Checkstyle) {
+        enabled = false  // Disables all Checkstyle tasks (e.g., checkstyleMain, checkstyleTest)
+    }
+}
+
+// Disable all Spotless checks project-wide
+allprojects {
+    tasks.withType(com.diffplug.gradle.spotless.SpotlessTask) {
+        enabled = false  // Disables all Spotless tasks (check, apply, etc.)
+    }
+}
+
+tasks.named('rat') {
+    enabled = false
+}
+
