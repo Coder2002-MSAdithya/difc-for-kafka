@@ -1,0 +1,35 @@
+// In server/build.gradle
+
+plugins {
+    id 'java' // Ensure Java plugin is applied if not already
+}
+
+// If not already defined, add test dependencies (Kafka likely has this, but for completeness)
+dependencies {
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.3' // Adjust version to match Kafka's
+    // Other dependencies as needed
+}
+
+task difcTests(type: Test) {
+    description = 'Runs only the DIFC-related unit tests'
+    group = 'verification' // Groups it under verification tasks like other tests
+
+    // Use JUnit Platform for JUnit 5 tests
+    useJUnitPlatform()
+
+    // Filter to include only DIFC tests (adjust pattern if needed)
+    filter {
+        includeTestsMatching "org.apache.kafka.server.difc.*Test"
+        // Or if using the suite: includeTestsMatching "org.apache.kafka.server.difc.DIFCSuite"
+    }
+
+    // Optional: Set max parallel forks, JVM args, etc., to match :server:test
+    maxParallelForks = 1 // Or match your setup
+    testLogging {
+        events "passed", "skipped", "failed"
+        showStandardStreams = true // Shows System.out.println from tests
+    }
+
+    // Depend on compilation to ensure tests are built
+    dependsOn ':server:compileTestJava'
+}
