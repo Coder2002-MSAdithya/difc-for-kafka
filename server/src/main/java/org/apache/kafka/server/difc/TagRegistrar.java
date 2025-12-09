@@ -1,6 +1,8 @@
 package org.apache.kafka.server.difc;
 
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class TagRegistrar
@@ -157,6 +159,19 @@ public class TagRegistrar
     public ClientDIFCPrivs getClientPrivs(String clientId)
     {
         return clientsById.get(clientId);
+    }
+
+    public boolean canClientReceive(String senderId, String receiverId, Set<String> messageTags)
+    {
+        ClientDIFCPrivs sender = getClientPrivs(senderId);
+        ClientDIFCPrivs receiver = getClientPrivs(receiverId);
+        if (sender == null || receiver == null)
+        {
+            return false;
+        }
+        Set<String> union = new HashSet<>(sender.tags);
+        union.addAll(messageTags);
+        return receiver.tags.containsAll(union);
     }
 
     @Override

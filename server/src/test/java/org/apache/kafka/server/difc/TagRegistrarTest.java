@@ -6,6 +6,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
+
 class TagRegistrarTest {
     @Test
     void testInitialization() {
@@ -123,5 +127,62 @@ class TagRegistrarTest {
         int result = registrar.removeClientPrivs("clientY", "nonexistent", Capability.CAN_ADD);
         assertEquals(-1, result);
         System.out.println("testRemoveClientPrivsNonExistentTag passed");
+    }
+
+    @Test
+    public void testCanClientReceiveSameClientEmptyMessage() {
+        TagRegistrar registrar = new TagRegistrar();
+        registrar.initialize();
+        Set<String> messageTags = new HashSet<>();
+        assertTrue(registrar.canClientReceive("client1", "client1", messageTags));
+    }
+
+    @Test
+    public void testCanClientReceiveUnionSubset() {
+        TagRegistrar registrar = new TagRegistrar();
+        // Setup: Add tags to clients
+        registrar.createTag("tagX", "client1");
+        registrar.createTag("tagY", "client1");
+        registrar.addClientPrivs("client2", "tagX", Capability.CAN_ADD); // Ensure client2 is created
+        ClientDIFCPrivs sender = registrar.getClientPrivs("client1");
+        ClientDIFCPrivs receiver = registrar.getClientPrivs("client2");
+        sender.tags.add("tagX");
+        receiver.tags.add("tagX");
+        receiver.tags.add("tagY");
+        Set<String> messageTags = new HashSet<>(Arrays.asList("tagY"));
+        assertTrue(registrar.canClientReceive("client1", "client2", messageTags));
+    }
+
+    @Test
+    public void testCanClientReceiveUnionNotSubset() {
+        TagRegistrar registrar = new TagRegistrar();
+        // Setup: Add tags to clients
+        registrar.createTag("tagX", "client1");
+        registrar.createTag("tagY", "client1");
+        registrar.addClientPrivs("client2", "tagX", Capability.CAN_ADD); // Ensure client2 is created
+        ClientDIFCPrivs sender = registrar.getClientPrivs("client1");
+        ClientDIFCPrivs receiver = registrar.getClientPrivs("client2");
+        sender.tags.add("tagX");
+        receiver.tags.add("tagX");
+        Set<String> messageTags = new HashSet<>(Arrays.asList("tagY"));
+        assertFalse(registrar.canClientReceive("client1", "client2", messageTags));
+    }
+
+    @Test
+    public void testCanClientReceiveNonExistingClient() {
+        TagRegistrar registrar = new TagRegistrar();
+        registrar.initialize();
+        Set<String> messageTags = new HashSet<>();
+        assertFalse(registrar.canClientReceive("nonexistent", "client1", messageTags));
+        assertFalse(registrar.canClientReceive("client1", "nonexistent", messageTags));
+    }
+
+    @Test
+    public void testCanClientReceiveWithUnknownMessageTag() {
+        TagRegistrar registrar = new TagRegistrar();
+        registrar.initialize();
+        Set<String> messageTags = new HashSet<>(Arrays.asList("unknownTag"));
+        // client1 tags: tagA, tagB; union: tagA, tagB, unknownTag; not subset of itself unless it has unknownTag
+        assertFalse(registrar.canClientReceive("client1", "client1", messageTags));
     }
 }
