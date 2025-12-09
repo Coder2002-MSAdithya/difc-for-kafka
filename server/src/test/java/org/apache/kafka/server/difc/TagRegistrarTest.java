@@ -2,13 +2,11 @@ package org.apache.kafka.server.difc;
 
 import org.junit.jupiter.api.Test;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
+
+import static org.junit.jupiter.api.Assertions.*;
 
 class TagRegistrarTest {
     @Test
@@ -34,6 +32,7 @@ class TagRegistrarTest {
     @Test
     void testCreateTagSuccess() {
         TagRegistrar registrar = new TagRegistrar();
+        registrar.registerClient("clientX");
         int tagId = registrar.createTag("newTag", "clientX");
         assertTrue(tagId > 0);
         assertTrue(registrar.hasTag("newTag"));
@@ -45,7 +44,9 @@ class TagRegistrarTest {
     @Test
     void testCreateTagDuplicate() {
         TagRegistrar registrar = new TagRegistrar();
+        registrar.registerClient("clientX");
         registrar.createTag("dupTag", "clientX");
+        registrar.registerClient("clientY");
         int result = registrar.createTag("dupTag", "clientY");
         assertEquals(-1, result);
         System.out.println("testCreateTagDuplicate passed");
@@ -54,6 +55,7 @@ class TagRegistrarTest {
     @Test
     void testCreateTagInvalidName() {
         TagRegistrar registrar = new TagRegistrar();
+        registrar.registerClient("clientX");
         int result = registrar.createTag("invalid@tag", "clientX");
         assertEquals(-1, result);
         assertFalse(registrar.hasTag("invalid@tag"));
@@ -63,6 +65,7 @@ class TagRegistrarTest {
     @Test
     void testDestroyTag() {
         TagRegistrar registrar = new TagRegistrar();
+        registrar.registerClient("clientX");
         registrar.createTag("toDestroy", "clientX");
         int result = registrar.destroyTag("toDestroy");
         assertEquals(0, result);
@@ -93,6 +96,7 @@ class TagRegistrarTest {
     @Test
     void testAddClientPrivs() {
         TagRegistrar registrar = new TagRegistrar();
+        registrar.registerClient("clientX");
         registrar.createTag("privTag", "clientX");
         int result = registrar.addClientPrivs("clientY", "privTag", Capability.CAN_ADD);
         assertEquals(0, result);
@@ -112,6 +116,7 @@ class TagRegistrarTest {
     @Test
     void testRemoveClientPrivs() {
         TagRegistrar registrar = new TagRegistrar();
+        registrar.registerClient("clientX");
         registrar.createTag("privTag", "clientX");
         registrar.addClientPrivs("clientY", "privTag", Capability.CAN_ADD);
         int result = registrar.removeClientPrivs("clientY", "privTag", Capability.CAN_ADD);
@@ -140,6 +145,7 @@ class TagRegistrarTest {
     @Test
     public void testCanClientReceiveUnionSubset() {
         TagRegistrar registrar = new TagRegistrar();
+        registrar.registerClient("client1");
         // Setup: Add tags to clients
         registrar.createTag("tagX", "client1");
         registrar.createTag("tagY", "client1");
@@ -156,6 +162,7 @@ class TagRegistrarTest {
     @Test
     public void testCanClientReceiveUnionNotSubset() {
         TagRegistrar registrar = new TagRegistrar();
+        registrar.registerClient("client1");
         // Setup: Add tags to clients
         registrar.createTag("tagX", "client1");
         registrar.createTag("tagY", "client1");
@@ -166,6 +173,30 @@ class TagRegistrarTest {
         receiver.tags.add("tagX");
         Set<String> messageTags = new HashSet<>(Arrays.asList("tagY"));
         assertFalse(registrar.canClientReceive("client1", "client2", messageTags));
+    }
+
+    @Test
+    void testCreateTagNonExistingOwner() {
+        TagRegistrar registrar = new TagRegistrar();
+        int result = registrar.createTag("newTag", "unknown");
+        assertEquals(-1, result);
+        assertFalse(registrar.hasTag("newTag"));
+    }
+
+    @Test
+    void testRegisterClientSuccess() {
+        TagRegistrar registrar = new TagRegistrar();
+        int result = registrar.registerClient("newClient");
+        assertEquals(0, result);
+        assertNotNull(registrar.getClientPrivs("newClient"));
+    }
+
+    @Test
+    void testRegisterClientDuplicate() {
+        TagRegistrar registrar = new TagRegistrar();
+        registrar.registerClient("dupClient");
+        int result = registrar.registerClient("dupClient");
+        assertEquals(-1, result);
     }
 
     @Test

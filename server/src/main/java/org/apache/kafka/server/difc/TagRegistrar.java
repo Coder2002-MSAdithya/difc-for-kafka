@@ -58,6 +58,14 @@ public class TagRegistrar
         c3.tags.add("tagD");
     }
 
+    public int registerClient(String clientId)
+    {
+        if (clientId == null) return -1;
+        if (clientsById.containsKey(clientId)) return -1;
+        clientsById.put(clientId, new ClientDIFCPrivs(clientId));
+        return 0;
+    }
+
     private ClientDIFCPrivs getOrCreateClient(String clientId)
     {
         return clientsById.computeIfAbsent(clientId, ClientDIFCPrivs::new);
@@ -67,19 +75,21 @@ public class TagRegistrar
     {
         if (tagName == null || owner == null) return -1;
         if (tagsByName.containsKey(tagName)) return -1;
+        ClientDIFCPrivs ownerPrivs = getClientPrivs(owner);
+        if (ownerPrivs == null) return -1;
         try
         {
             Tag newTag = new Tag(tagName, owner);
             tagsByName.put(tagName, newTag);
-            ClientDIFCPrivs ownerPrivs = getOrCreateClient(owner);
             ownerPrivs.owns.add(tagName);
             return newTag.tagId;
         }
-        catch (IllegalArgumentException e)
+        catch(IllegalArgumentException e)
         {
             return -1;
         }
     }
+
 
     public int destroyTag(String tagName)
     {
