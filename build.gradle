@@ -1254,17 +1254,17 @@ project(':core') {
             def scriptFile   = new File(generatedDir, "runBroker.sh")
             generatedDir.mkdirs()
             scriptFile.text = '''#!/usr/bin/env bash
-set -euo pipefail
-
-# 1. Create a random cluster ID
-KAFKA_CLUSTER_ID="$(./bin/kafka-storage.sh random-uuid)"
-
-# 2. Format storage (single-node, standalone)
-./bin/kafka-storage.sh format --standalone -t "$KAFKA_CLUSTER_ID" -c config/server.properties
-
-# 3. Start the broker
-./bin/kafka-server-start.sh config/server.properties
-'''
+            set -euo pipefail
+            
+            # 1. Create a random cluster ID
+            KAFKA_CLUSTER_ID="$(./bin/kafka-storage.sh random-uuid)"
+            
+            # 2. Format storage (single-node, standalone)
+            ./bin/kafka-storage.sh format --standalone -t "$KAFKA_CLUSTER_ID" -c config/server.properties
+            
+            # 3. Start the broker
+            ./bin/kafka-server-start.sh config/server.properties
+            '''
             scriptFile.setExecutable(true)
         }
 
