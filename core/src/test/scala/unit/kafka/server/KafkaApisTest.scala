@@ -10716,4 +10716,24 @@ class KafkaApisTest extends Logging {
     }
     response
   }
+
+  @Test
+  def testHandleCreateTagLogsInfo(): Unit = {
+    val requestData = new CreateTagRequestData()
+      .setTagName("test-tag")
+
+    val version = ApiKeys.CREATE_TAG.latestVersion()
+    val createTagRequest = new CreateTagRequest(requestData, version)
+    val requestChannelRequest = buildRequest(createTagRequest)
+
+    kafkaApis = createKafkaApis()
+
+    // reset hook
+    kafkaApis.lastCreateTagInvoked = false
+
+    kafkaApis.handleCreateTagRequest(requestChannelRequest)
+
+    // assert that our info path ran
+    assertTrue(kafkaApis.lastCreateTagInvoked)
+  }
 }

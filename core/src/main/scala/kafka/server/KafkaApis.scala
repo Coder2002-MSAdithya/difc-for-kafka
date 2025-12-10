@@ -239,7 +239,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         case ApiKeys.WRITE_SHARE_GROUP_STATE => handleWriteShareGroupStateRequest(request)
         case ApiKeys.DELETE_SHARE_GROUP_STATE => handleDeleteShareGroupStateRequest(request)
         case ApiKeys.READ_SHARE_GROUP_STATE_SUMMARY => handleReadShareGroupStateSummaryRequest(request)
-        case ApiKeys.CREATE_TAG => handleCreateTokenRequest(request)
+        case ApiKeys.CREATE_TAG => handleCreateTagRequest(request)
         case _ => throw new IllegalStateException(s"No handler for request api key ${request.header.apiKey}")
       }
     } catch {
@@ -261,7 +261,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     replicaManager.tryCompleteActions()
   }
 
-  def handleCreateTagRequest() : Unit = {
+  def handleCreateTagRequest(request : RequestChannel.Request) : Unit = {
     lastCreateTagInvoked = true
      info("CREATE_TAG request works successfully!!\n")
   }
