@@ -1,0 +1,28 @@
+{
+  "apiKey": 101,
+  "type": "response",
+  "name": "CreateTagResponse",
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    {
+      "name": "errorCode",
+      "type": "int16",
+      "versions": "0+",
+      "about": "0 if the tag was created successfully; otherwise a non-zero error code (e.g., TAG_NAME_TOO_LONG, TAG_ALREADY_EXISTS, INVALID_TAG_NAME)."
+    },
+    {
+      "name": "errorMessage",
+      "type": "string",
+      "versions": "0+",
+      "nullableVersions": "0+",
+      "about": "A human-readable error message if error_code is non-zero. Null or empty on success. Examples: 'tagName must not exceed 16 characters', 'Tag name already exists', 'tagName contains invalid characters; only alphanumeric, '_' and '-' allowed'."
+    },
+    {
+      "name": "tagId",
+      "type": "int32",
+      "versions": "0+",
+      "about": "The numeric identifier assigned to the newly created tag. Set to 0 (or -1 by server convention) when error_code is non-zero."
+    }
+  ]
+}
