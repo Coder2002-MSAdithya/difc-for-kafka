@@ -80,6 +80,16 @@ import scala.collection.mutable.ArrayBuffer
 import scala.collection.{Map, Seq, Set, mutable}
 import scala.jdk.CollectionConverters._
 
+import org.apache.kafka.server.difc.{
+  TagRegistrar,
+  TagException,
+  NullInputException,
+  DuplicateTagException,
+  OwnerNotFoundException,
+  InvalidTagNameException
+}
+
+
 /**
  * Logic to handle the various Kafka requests
  */
@@ -104,8 +114,12 @@ class KafkaApis(val requestChannel: RequestChannel,
                 time: Time,
                 val tokenManager: DelegationTokenManager,
                 val apiVersionManager: ApiVersionManager,
-                val clientMetricsManager: ClientMetricsManager
+                val clientMetricsManager: ClientMetricsManager,
 ) extends ApiRequestHandler with Logging {
+
+  // Initialize tag registrar internally - no constructor changes needed
+  val tagRegistrar = new TagRegistrar()
+  tagRegistrar.initialize()
 
   type FetchResponseStats = Map[TopicPartition, RecordValidationStats]
   this.logIdent = "[KafkaApi-%d] ".format(brokerId)
@@ -261,9 +275,58 @@ class KafkaApis(val requestChannel: RequestChannel,
     replicaManager.tryCompleteActions()
   }
 
-  def handleCreateTagRequest(request : RequestChannel.Request) : Unit = {
-    lastCreateTagInvoked = true
-     info("CREATE_TAG request works successfully!!\n")
+  def handleCreateTagRequest(request: RequestChannel.Request): Unit =
+  {
+    val createTagRequest = request.body[CreateTagRequest]
+    val data = createTagRequest.data
+    val tagName = data.tagName()
+    val clientId = request.context.clientId();
+
+    var error: Errors = Errors.NONE
+    var errorMessage: String = null
+    var tagId: Int = 0
+
+    try
+    {
+      // TagRegistrar is the authority: if this succeeds, tagId > 0
+      val resultId = tagRegistrar.createTag(tagName, clientId)
+      lastCreateTagInvoked = true
+      tagId = resultId
+      error = Errors.NONE
+      errorMessage = s"Tag '$tagName' created successfully with id $tagId"
+      info(s"CREATE_TAG: client '$clientId' created tag '$tagName' with id $tagId")
+    }
+    catch
+    {
+      case e: NullInputException =>
+        error = Errors.INVALID_REQUEST
+        errorMessage = e.getMessage
+
+      case e: DuplicateTagException =>
+        error = Errors.INVALID_REQUEST
+        errorMessage = e.getMessage
+
+      case e: OwnerNotFoundException =>
+        error = Errors.INVALID_REQUEST
+        errorMessage = e.getMessage
+
+      case e: InvalidTagNameException =>
+        error = Errors.INVALID_REQUEST
+        errorMessage = e.getMessage
+
+      case e: TagException =>
+        // any other TagRegistrar-defined error
+        error = Errors.UNKNOWN_SERVER_ERROR
+        errorMessage = e.getMessage
+    }
+
+    val responseData = new CreateTagResponseData()
+      .setErrorCode(error.code.toShort)
+      .setErrorMessage(errorMessage)
+      .setTagId(tagId)
+
+    val response = new CreateTagResponse(responseData)
+    requestHelper.sendMaybeThrottle(request, response)
   }
 
   /**

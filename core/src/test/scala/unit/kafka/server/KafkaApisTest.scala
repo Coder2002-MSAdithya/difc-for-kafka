@@ -10736,4 +10736,28 @@ class KafkaApisTest extends Logging {
     // assert that our info path ran
     assertTrue(kafkaApis.lastCreateTagInvoked)
   }
+
+  @Test
+  def testHandleCreateTagRequestInvalidName(): Unit = {
+    val tagName = "bad@tag"
+
+    // Use buildRequest WITHOUT second param (clientId goes in RequestHeader automatically)
+    val requestData = new CreateTagRequestData().setTagName(tagName)
+    val createTagRequest = new CreateTagRequest(requestData, ApiKeys.CREATE_TAG.latestVersion().toShort)
+
+    // Option 1: Simple - let buildRequest use default clientId
+    val request = buildRequest(createTagRequest)
+
+    metadataCache = MetadataCache.kRaftMetadataCache(brokerId, () => KRaftVersion.LATEST_PRODUCTION)
+    kafkaApis = createKafkaApis()
+
+    kafkaApis.handleCreateTagRequest(request)
+
+    val response = verifyNoThrottling[CreateTagResponse](request)
+    val responseData = response.data()
+
+    assertEquals(Errors.INVALID_REQUEST.code, responseData.errorCode())
+    assertEquals("Invalid tag name 'bad@tag'", responseData.errorMessage())
+    assertEquals(0, responseData.tagId())
+  }
 }

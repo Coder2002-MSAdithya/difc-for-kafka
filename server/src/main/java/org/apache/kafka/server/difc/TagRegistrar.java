@@ -7,21 +7,26 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class TagRegistrar
 {
+
     private final Map<String, Tag> tagsByName = new ConcurrentHashMap<>();
     private final Map<String, ClientDIFCPrivs> clientsById = new ConcurrentHashMap<>();
+
+    private static final int MAX_TAG_LENGTH = 16;
+    private static final int OK = 0;
 
     public TagRegistrar()
     {
         // Empty constructor initializing empty maps
     }
 
-    public void initialize()
-    {
+    public void initialize() {
         // Initialize with hardcoded clients and tags for testing
+
         // Create clients
         ClientDIFCPrivs c1 = new ClientDIFCPrivs("client1");
         ClientDIFCPrivs c2 = new ClientDIFCPrivs("client2");
         ClientDIFCPrivs c3 = new ClientDIFCPrivs("client3");
+
         clientsById.put("client1", c1);
         clientsById.put("client2", c2);
         clientsById.put("client3", c3);
@@ -46,8 +51,10 @@ public class TagRegistrar
         // Assign some capabilities
         c1.canAdd.add("tagC");
         c1.canRemove.add("tagD");
+
         c2.canAdd.add("tagA");
         c2.canRemove.add("tagB");
+
         c3.canAdd.add("tagB");
         c3.canRemove.add("tagC");
 
@@ -60,42 +67,73 @@ public class TagRegistrar
 
     public int registerClient(String clientId)
     {
-        if (clientId == null) return -1;
-        if (clientsById.containsKey(clientId)) return -1;
+        if (clientId == null)
+            throw new NullInputException("clientId must not be null");
+        if (clientsById.containsKey(clientId))
+            throw new ClientExistsException("Client '" + clientId + "' already exists");
+
         clientsById.put(clientId, new ClientDIFCPrivs(clientId));
-        return 0;
+        return OK;
     }
+
 
     private ClientDIFCPrivs getOrCreateClient(String clientId)
     {
         return clientsById.computeIfAbsent(clientId, ClientDIFCPrivs::new);
     }
 
+    /**
+     * Create a tag.
+     *
+     * @return positive tagId on success
+     * @throws NullInputException       if tagName or owner is null
+     * @throws DuplicateTagException    if tag already exists
+     * @throws OwnerNotFoundException   if owner client does not exist
+     * @throws InvalidTagNameException  if tagName format is invalid
+     */
     public int createTag(String tagName, String owner)
     {
-        if (tagName == null || owner == null) return -1;
-        if (tagsByName.containsKey(tagName)) return -1;
-        ClientDIFCPrivs ownerPrivs = getClientPrivs(owner);
-        if (ownerPrivs == null) return -1;
-        try
-        {
-            Tag newTag = new Tag(tagName, owner);
-            tagsByName.put(tagName, newTag);
-            ownerPrivs.owns.add(tagName);
-            return newTag.tagId;
-        }
-        catch(IllegalArgumentException e)
-        {
-            return -1;
-        }
-    }
+        if (tagName == null || owner == null)
+            throw new NullInputException("tagName and owner must not be null");
 
+        if (tagsByName.containsKey(tagName))
+            throw new DuplicateTagException("Tag '" + tagName + "' already exists");
+
+        ClientDIFCPrivs ownerPrivs = getClientPrivs(owner);
+        if (ownerPrivs == null)
+            throw new OwnerNotFoundException("Owner client '" + owner + "' not found");
+
+        // Validation consistent with protocol comment: non-empty, <=16, ^[A-Za-z0-9_-]+$
+        if (tagName.isEmpty())
+        {
+            throw new InvalidTagNameException("Tag name CANNOT be empty.\n");
+        }
+        else if(tagName.length() > MAX_TAG_LENGTH)
+        {
+            throw new InvalidTagNameException("Tag name CANNOT be longer than " + MAX_TAG_LENGTH + ".\n");
+        }
+        else if(!tagName.matches("^[A-Za-z0-9_-]+$"))
+        {
+            throw new InvalidTagNameException("Invalid tag name '" + tagName + "'.\n Tag name CAN ONLY contain alphabets, digits, underscores and hiphen characters.. \n");
+        }
+
+        Tag newTag = new Tag(tagName, owner);
+        tagsByName.put(tagName, newTag);
+        ownerPrivs.owns.add(tagName);
+        return newTag.tagId;
+    }
 
     public int destroyTag(String tagName)
     {
+        if (tagName == null)
+            throw new NullInputException("tagName must not be null");
+
         Tag tag = tagsByName.get(tagName);
-        if (tag == null) return -1;
+        if (tag == null)
+            throw new TagNotFoundException("Tag '" + tagName + "' not found");
+
         tagsByName.remove(tagName);
+
         // Remove from all clients' sets
         for (ClientDIFCPrivs client : clientsById.values())
         {
@@ -104,7 +142,8 @@ public class TagRegistrar
             client.canRemove.remove(tagName);
             client.owns.remove(tagName);
         }
-        return 0;
+
+        return OK;
     }
 
     public int getTag(String tagName)
@@ -115,11 +154,15 @@ public class TagRegistrar
 
     public int addClientPrivs(String clientId, String tagName, Capability cap)
     {
-        if (clientId == null || tagName == null || cap == null) return -1;
-        if (!tagsByName.containsKey(tagName)) return -1;
+        if (clientId == null || tagName == null || cap == null)
+            throw new NullInputException("clientId, tagName and cap must not be null");
+
+        if (!tagsByName.containsKey(tagName))
+            throw new TagNotFoundException("Tag '" + tagName + "' not found");
+
         ClientDIFCPrivs client = getOrCreateClient(clientId);
-        switch (cap)
-        {
+
+        switch (cap) {
             case CAN_ADD:
                 client.canAdd.add(tagName);
                 break;
@@ -127,18 +170,23 @@ public class TagRegistrar
                 client.canRemove.add(tagName);
                 break;
             default:
-                return -1;
+                throw new CapabilityException("Unsupported capability " + cap);
         }
+
         return 0;
     }
 
     public int removeClientPrivs(String clientId, String tagName, Capability cap)
     {
-        if (clientId == null || tagName == null || cap == null) return -1;
-        if (!tagsByName.containsKey(tagName)) return -1;
+        if (clientId == null || tagName == null || cap == null)
+            throw new NullInputException("clientId, tagName and cap must not be null");
+
+        if (!tagsByName.containsKey(tagName))
+            throw new TagNotFoundException("Tag '" + tagName + "' not found");
+
         ClientDIFCPrivs client = getOrCreateClient(clientId);
-        switch (cap)
-        {
+
+        switch (cap) {
             case CAN_ADD:
                 client.canAdd.remove(tagName);
                 break;
@@ -146,8 +194,9 @@ public class TagRegistrar
                 client.canRemove.remove(tagName);
                 break;
             default:
-                return -1;
+                throw new CapabilityException("Unsupported capability " + cap);
         }
+
         return 0;
     }
 
@@ -175,10 +224,10 @@ public class TagRegistrar
     {
         ClientDIFCPrivs sender = getClientPrivs(senderId);
         ClientDIFCPrivs receiver = getClientPrivs(receiverId);
-        if (sender == null || receiver == null)
-        {
+        if (sender == null || receiver == null) {
             return false;
         }
+
         Set<String> union = new HashSet<>(sender.tags);
         union.addAll(messageTags);
         return receiver.tags.containsAll(union);
@@ -190,13 +239,11 @@ public class TagRegistrar
         StringBuilder sb = new StringBuilder();
         sb.append("TagRegistrar{\n");
         sb.append("  Tags (").append(tagsByName.size()).append("):\n");
-        for (Map.Entry<String, Tag> entry : tagsByName.entrySet())
-        {
+        for (Map.Entry<String, Tag> entry : tagsByName.entrySet()) {
             sb.append("    ").append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
         }
         sb.append("  Clients (").append(clientsById.size()).append("):\n");
-        for (Map.Entry<String, ClientDIFCPrivs> entry : clientsById.entrySet())
-        {
+        for (Map.Entry<String, ClientDIFCPrivs> entry : clientsById.entrySet()) {
             sb.append("    ").append(entry.getKey()).append(": ").append(entry.getValue()).append("\n");
         }
         sb.append("}");
