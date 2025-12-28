@@ -9186,7 +9186,8 @@ class KafkaApisTest extends Logging {
                            listenerName: ListenerName = ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT),
                            fromPrivilegedListener: Boolean = false,
                            requestHeader: Option[RequestHeader] = None,
-                           requestMetrics: RequestChannelMetrics = requestChannelMetrics): RequestChannel.Request = {
+                           requestMetrics: RequestChannelMetrics = requestChannelMetrics,
+                           clientId : String = clientId): RequestChannel.Request = {
     val buffer = request.serializeWithHeader(
       requestHeader.getOrElse(new RequestHeader(request.apiKey, request.version, clientId, 0)))
 
@@ -10740,13 +10741,14 @@ class KafkaApisTest extends Logging {
   @Test
   def testHandleCreateTagRequestInvalidName(): Unit = {
     val tagName = "bad@tag"
+    val clientId = "client1"
 
-    // Use buildRequest WITHOUT second param (clientId goes in RequestHeader automatically)
+    // Use buildRequest
     val requestData = new CreateTagRequestData().setTagName(tagName)
-    val createTagRequest = new CreateTagRequest(requestData, ApiKeys.CREATE_TAG.latestVersion().toShort)
+    val createTagRequest = new CreateTagRequest(requestData, ApiKeys.CREATE_TAG.latestVersion())
 
-    // Option 1: Simple - let buildRequest use default clientId
-    val request = buildRequest(createTagRequest)
+    // Pass clientId as an argument to buildRequest
+    val request = buildRequest(createTagRequest, ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT), fromPrivilegedListener = false, None, requestChannelMetrics, clientId)
 
     metadataCache = MetadataCache.kRaftMetadataCache(brokerId, () => KRaftVersion.LATEST_PRODUCTION)
     kafkaApis = createKafkaApis()
@@ -10757,7 +10759,103 @@ class KafkaApisTest extends Logging {
     val responseData = response.data()
 
     assertEquals(Errors.INVALID_REQUEST.code, responseData.errorCode())
-    assertEquals("Invalid tag name 'bad@tag'", responseData.errorMessage())
+    assertTrue(responseData.errorMessage().contains("Invalid tag name 'bad@tag'"))
     assertEquals(0, responseData.tagId())
+  }
+
+  @Test
+  def testHandleCreateTagRequestWithTooLongTagName() : Unit = {
+     val tagName = "pneumoniaUltraMicroscopic"
+     val clientId = "client2"
+
+     val requestData = new CreateTagRequestData().setTagName(tagName)
+     val createTagRequest = new CreateTagRequest(requestData, ApiKeys.CREATE_TAG.latestVersion())
+
+     val request = buildRequest(createTagRequest, ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT), fromPrivilegedListener = false, None, requestChannelMetrics, clientId)
+
+    metadataCache = MetadataCache.kRaftMetadataCache(brokerId, () => KRaftVersion.LATEST_PRODUCTION)
+    kafkaApis = createKafkaApis()
+
+    kafkaApis.handleCreateTagRequest(request)
+
+    val response = verifyNoThrottling[CreateTagResponse](request)
+    val responseData = response.data()
+
+    assertEquals(Errors.INVALID_REQUEST.code, responseData.errorCode())
+    assertTrue(responseData.errorMessage().contains("Tag name CANNOT be longer than"))
+    assertEquals(0, responseData.tagId())
+  }
+
+  @Test
+  def testHandleCreateTagRequestByUnknownClient() : Unit = {
+    val tagName = "helloNormalTag"
+    val clientId = "clientX"
+
+    val requestData = new CreateTagRequestData().setTagName(tagName)
+    val createTagRequest = new CreateTagRequest(requestData, ApiKeys.CREATE_TAG.latestVersion())
+
+    val request = buildRequest(createTagRequest, ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT), fromPrivilegedListener = false, None, requestChannelMetrics, clientId)
+
+    metadataCache = MetadataCache.kRaftMetadataCache(brokerId, () => KRaftVersion.LATEST_PRODUCTION)
+    kafkaApis = createKafkaApis()
+
+    kafkaApis.handleCreateTagRequest(request)
+
+    val response = verifyNoThrottling[CreateTagResponse](request)
+    val responseData = response.data()
+
+    assertEquals(Errors.INVALID_REQUEST.code, responseData.errorCode())
+    assertTrue(responseData.errorMessage().contains("Owner client '" + clientId + "' not found"))
+    assertEquals(0, responseData.tagId())
+  }
+
+  @Test
+  def testHandleCreateTagRequestForDuplicateTags() : Unit = {
+    val tagName = "helloNormalTag"
+    val clientId1 = "client1"
+    val clientId2 = "client2"
+
+    val requestData = new CreateTagRequestData().setTagName(tagName)
+    val createTagRequest = new CreateTagRequest(requestData, ApiKeys.CREATE_TAG.latestVersion())
+
+    val request1 = buildRequest(createTagRequest, ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT), fromPrivilegedListener = false, None, requestChannelMetrics, clientId1)
+    val request2 = buildRequest(createTagRequest, ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT), fromPrivilegedListener = false, None, requestChannelMetrics, clientId2)
+
+    metadataCache = MetadataCache.kRaftMetadataCache(brokerId, () => KRaftVersion.LATEST_PRODUCTION)
+    kafkaApis = createKafkaApis()
+
+    kafkaApis.handleCreateTagRequest(request1)
+    kafkaApis.handleCreateTagRequest(request2)
+
+
+    val response = verifyNoThrottling[CreateTagResponse](request2)
+    val responseData = response.data()
+
+    assertEquals(Errors.INVALID_REQUEST.code, responseData.errorCode())
+    assertTrue(responseData.errorMessage().contains("Tag '" + tagName + "' already exists"))
+    assertEquals(0, responseData.tagId())
+  }
+
+  @Test
+  def testHandleCreateTagRequestSuccess() : Unit = {
+    val tagName = "pneumonia"
+    val clientId = "client3"
+
+    val requestData = new CreateTagRequestData().setTagName(tagName)
+    val createTagRequest = new CreateTagRequest(requestData, ApiKeys.CREATE_TAG.latestVersion())
+
+    val request = buildRequest(createTagRequest, ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT), fromPrivilegedListener = false, None, requestChannelMetrics, clientId)
+
+    metadataCache = MetadataCache.kRaftMetadataCache(brokerId, () => KRaftVersion.LATEST_PRODUCTION)
+    kafkaApis = createKafkaApis()
+
+    kafkaApis.handleCreateTagRequest(request)
+
+    val response = verifyNoThrottling[CreateTagResponse](request)
+    val responseData = response.data()
+
+    assertEquals(Errors.NONE.code, responseData.errorCode())
+    assertTrue(responseData.errorMessage().contains("Tag '" + tagName + "' created successfully"))
+    assertNotEquals(0, responseData.tagId())
   }
 }
