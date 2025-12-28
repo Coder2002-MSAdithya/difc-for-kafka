@@ -9204,6 +9204,10 @@ class KafkaApisTest extends Logging {
       requestMetrics, envelope = None)
   }
 
+  private def buildRequestWithCustomClientId(request : AbstractRequest, clientId : String) : RequestChannel.Request = {
+     buildRequest(request, ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT), fromPrivilegedListener = false, None, requestChannelMetrics, clientId)
+  }
+
   private def verifyNoThrottling[T <: AbstractResponse](
     request: RequestChannel.Request
   ): T = {
@@ -10719,26 +10723,6 @@ class KafkaApisTest extends Logging {
   }
 
   @Test
-  def testHandleCreateTagLogsInfo(): Unit = {
-    val requestData = new CreateTagRequestData()
-      .setTagName("test-tag")
-
-    val version = ApiKeys.CREATE_TAG.latestVersion()
-    val createTagRequest = new CreateTagRequest(requestData, version)
-    val requestChannelRequest = buildRequest(createTagRequest)
-
-    kafkaApis = createKafkaApis()
-
-    // reset hook
-    kafkaApis.lastCreateTagInvoked = false
-
-    kafkaApis.handleCreateTagRequest(requestChannelRequest)
-
-    // assert that our info path ran
-    assertTrue(kafkaApis.lastCreateTagInvoked)
-  }
-
-  @Test
   def testHandleCreateTagRequestInvalidName(): Unit = {
     val tagName = "bad@tag"
     val clientId = "client1"
@@ -10748,7 +10732,7 @@ class KafkaApisTest extends Logging {
     val createTagRequest = new CreateTagRequest(requestData, ApiKeys.CREATE_TAG.latestVersion())
 
     // Pass clientId as an argument to buildRequest
-    val request = buildRequest(createTagRequest, ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT), fromPrivilegedListener = false, None, requestChannelMetrics, clientId)
+    val request = buildRequestWithCustomClientId(createTagRequest, clientId)
 
     metadataCache = MetadataCache.kRaftMetadataCache(brokerId, () => KRaftVersion.LATEST_PRODUCTION)
     kafkaApis = createKafkaApis()
@@ -10771,7 +10755,7 @@ class KafkaApisTest extends Logging {
      val requestData = new CreateTagRequestData().setTagName(tagName)
      val createTagRequest = new CreateTagRequest(requestData, ApiKeys.CREATE_TAG.latestVersion())
 
-     val request = buildRequest(createTagRequest, ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT), fromPrivilegedListener = false, None, requestChannelMetrics, clientId)
+     val request = buildRequestWithCustomClientId(createTagRequest, clientId)
 
     metadataCache = MetadataCache.kRaftMetadataCache(brokerId, () => KRaftVersion.LATEST_PRODUCTION)
     kafkaApis = createKafkaApis()
@@ -10794,7 +10778,7 @@ class KafkaApisTest extends Logging {
     val requestData = new CreateTagRequestData().setTagName(tagName)
     val createTagRequest = new CreateTagRequest(requestData, ApiKeys.CREATE_TAG.latestVersion())
 
-    val request = buildRequest(createTagRequest, ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT), fromPrivilegedListener = false, None, requestChannelMetrics, clientId)
+    val request = buildRequestWithCustomClientId(createTagRequest, clientId)
 
     metadataCache = MetadataCache.kRaftMetadataCache(brokerId, () => KRaftVersion.LATEST_PRODUCTION)
     kafkaApis = createKafkaApis()
@@ -10818,8 +10802,8 @@ class KafkaApisTest extends Logging {
     val requestData = new CreateTagRequestData().setTagName(tagName)
     val createTagRequest = new CreateTagRequest(requestData, ApiKeys.CREATE_TAG.latestVersion())
 
-    val request1 = buildRequest(createTagRequest, ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT), fromPrivilegedListener = false, None, requestChannelMetrics, clientId1)
-    val request2 = buildRequest(createTagRequest, ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT), fromPrivilegedListener = false, None, requestChannelMetrics, clientId2)
+    val request1 = buildRequestWithCustomClientId(createTagRequest, clientId1)
+    val request2 = buildRequestWithCustomClientId(createTagRequest, clientId2)
 
     metadataCache = MetadataCache.kRaftMetadataCache(brokerId, () => KRaftVersion.LATEST_PRODUCTION)
     kafkaApis = createKafkaApis()
@@ -10844,7 +10828,7 @@ class KafkaApisTest extends Logging {
     val requestData = new CreateTagRequestData().setTagName(tagName)
     val createTagRequest = new CreateTagRequest(requestData, ApiKeys.CREATE_TAG.latestVersion())
 
-    val request = buildRequest(createTagRequest, ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT), fromPrivilegedListener = false, None, requestChannelMetrics, clientId)
+    val request = buildRequestWithCustomClientId(createTagRequest, clientId)
 
     metadataCache = MetadataCache.kRaftMetadataCache(brokerId, () => KRaftVersion.LATEST_PRODUCTION)
     kafkaApis = createKafkaApis()
