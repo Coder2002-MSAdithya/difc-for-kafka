@@ -121,10 +121,11 @@ class KafkaApis(val requestChannel: RequestChannel,
   val tagRegistrar = new TagRegistrar()
   tagRegistrar.initialize()
 
+  info("TagRegistrar initialized and contents at broker startup:\n" + tagRegistrar.toString())
+
   type FetchResponseStats = Map[TopicPartition, RecordValidationStats]
   this.logIdent = "[KafkaApi-%d] ".format(brokerId)
   val configHelper = new ConfigHelper(metadataCache, config, configRepository)
-  @volatile private[kafka] var lastCreateTagInvoked: Boolean = false
   val authHelper = new AuthHelper(authorizer)
   val requestHelper = new RequestHandlerHelper(requestChannel, quotas, time)
   val aclApis = new AclApis(authHelper, authorizer, requestHelper, "broker", config)
@@ -275,6 +276,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     replicaManager.tryCompleteActions()
   }
 
+  /* Handle a request to create/allocate a new tag for Kafka clients */
   def handleCreateTagRequest(request: RequestChannel.Request): Unit =
   {
     val createTagRequest = request.body[CreateTagRequest]
@@ -290,7 +292,6 @@ class KafkaApis(val requestChannel: RequestChannel,
     {
       // TagRegistrar is the authority: if this succeeds, tagId > 0
       val resultId = tagRegistrar.createTag(tagName, clientId)
-      lastCreateTagInvoked = true
       tagId = resultId
       error = Errors.NONE
       errorMessage = s"Tag '$tagName' created successfully with id $tagId"
@@ -321,7 +322,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
 
     val responseData = new CreateTagResponseData()
-      .setErrorCode(error.code.toShort)
+      .setErrorCode(error.code)
       .setErrorMessage(errorMessage)
       .setTagId(tagId)
 
