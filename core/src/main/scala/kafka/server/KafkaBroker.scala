@@ -32,7 +32,7 @@ import org.apache.kafka.metadata.BrokerState
 import org.apache.kafka.security.CredentialProvider
 import org.apache.kafka.server.authorizer.Authorizer
 import org.apache.kafka.server.common.NodeToControllerChannelManager
-import org.apache.kafka.server.difc.TagRegistrar
+//import org.apache.kafka.server.difc.TagRegistrar
 import org.apache.kafka.server.metrics.{KafkaMetricsGroup, KafkaYammerMetrics, LinuxIoMetricsCollector}
 import org.apache.kafka.server.util.Scheduler
 import org.apache.kafka.storage.internals.log.LogDirFailureChannel
@@ -108,16 +108,16 @@ trait KafkaBroker extends Logging {
   def tokenCache: DelegationTokenCache
 
   // Add TagRegistrar instance
-  private val tagRegistrar: TagRegistrar = new TagRegistrar()
-
-  // Initialize and print in a block that runs during object creation (before startup)
-  {
-    tagRegistrar.initialize()
-    info("TagRegistrar initialized and contents before broker startup:\n" + tagRegistrar.toString())
-  }
-
-  // Optional: Expose for other uses
-  def getTagRegistrar: TagRegistrar = tagRegistrar
+//  private val tagRegistrar: TagRegistrar = new TagRegistrar()
+//
+//  // Initialize and print in a block that runs during object creation (before startup)
+//  {
+//    tagRegistrar.initialize()
+//    info("TagRegistrar initialized and contents before broker startup:\n" + tagRegistrar.toString())
+//  }
+//
+//  // Optional: Expose for other uses
+//  def getTagRegistrar: TagRegistrar = tagRegistrar
 
   // For backwards compatibility, we need to keep older metrics tied
   // to their original name when this class was named `KafkaServer`
