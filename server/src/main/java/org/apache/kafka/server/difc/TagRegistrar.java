@@ -19,13 +19,14 @@ public class TagRegistrar
         // Empty constructor initializing empty maps
     }
 
-    public void initialize() {
+    public void initialize()
+    {
         // Initialize with hardcoded clients and tags for testing
 
         // Create clients
-        ClientDIFCPrivs c1 = new ClientDIFCPrivs("client1");
-        ClientDIFCPrivs c2 = new ClientDIFCPrivs("client2");
-        ClientDIFCPrivs c3 = new ClientDIFCPrivs("client3");
+        ClientDIFCPrivs c1 = getOrCreateClient("client1");
+        ClientDIFCPrivs c2 = getOrCreateClient("client2");
+        ClientDIFCPrivs c3 = getOrCreateClient("client3");
 
         clientsById.put("client1", c1);
         clientsById.put("client2", c2);
@@ -80,6 +81,14 @@ public class TagRegistrar
     private ClientDIFCPrivs getOrCreateClient(String clientId)
     {
         return clientsById.computeIfAbsent(clientId, ClientDIFCPrivs::new);
+    }
+
+    private ClientDIFCPrivs getClient(String clientId)
+    {
+        ClientDIFCPrivs c = clientsById.get(clientId);
+        if(c == null)
+            throw new ClientNotFoundException("Client '" + clientId + "' does not exist");
+        return c;
     }
 
     /**
@@ -152,13 +161,46 @@ public class TagRegistrar
         return tag != null ? tag.tagId : -1;
     }
 
-    public int addClientPrivs(String clientId, String tagName, Capability cap)
+    public int addTag(String tagName, String clientId)
     {
-        if (clientId == null || tagName == null || cap == null)
+        ClientDIFCPrivs client = getOrCreateClient(clientId);
+
+        if(client.canAdd.contains(tagName))
+        {
+            client.tags.add(tagName);
+            return OK;
+        }
+
+        throw new UnAuthorizedClientException("Client  '" + clientId + "' is unauthorized to perform this operation.");
+    }
+
+    public int removeTag(String tagName, String clientId)
+    {
+        ClientDIFCPrivs client = getOrCreateClient(clientId);
+
+        if(client.canRemove.contains(tagName))
+        {
+            client.tags.remove(tagName);
+        }
+
+        throw new UnAuthorizedClientException("Client  '" + clientId + "' is unauthorized to perform this operation.");
+    }
+
+    public int addClientPrivs(String fromClientId, String clientId, String tagName, Capability cap)
+    {
+        if (clientId == null || fromClientId == null || tagName == null || cap == null)
             throw new NullInputException("clientId, tagName and cap must not be null");
+
+        if(clientId.equals(fromClientId))
+            throw new TagException("CANNOT add privileges to yourself through this method");
 
         if (!tagsByName.containsKey(tagName))
             throw new TagNotFoundException("Tag '" + tagName + "' not found");
+
+        if(getOrCreateClient(fromClientId).owns.contains(tagName))
+        {
+            throw new ClientExistsException("Client '" + fromClientId + "' does NOT own this tag to bestow capabilities to another client..");
+        }
 
         ClientDIFCPrivs client = getOrCreateClient(clientId);
 
@@ -173,10 +215,10 @@ public class TagRegistrar
                 throw new CapabilityException("Unsupported capability " + cap);
         }
 
-        return 0;
+        return OK;
     }
 
-    public int removeClientPrivs(String clientId, String tagName, Capability cap)
+    public int removeClientPrivs(String fromClientId, String clientId, String tagName, Capability cap)
     {
         if (clientId == null || tagName == null || cap == null)
             throw new NullInputException("clientId, tagName and cap must not be null");
@@ -197,7 +239,27 @@ public class TagRegistrar
                 throw new CapabilityException("Unsupported capability " + cap);
         }
 
-        return 0;
+        return OK;
+    }
+
+    public int grantOwnerPrivileges(String fromClientId, String clientId, String tagName)
+    {
+        if(fromClientId == null || clientId == null || tagName == null)
+            throw new NullInputException("clientId, tagName and cap must not be null");
+
+        if(!tagsByName.containsKey(tagName))
+            throw new TagNotFoundException("Tag '" + tagName + "' not found");
+
+        ClientDIFCPrivs ownerClient = getClient(fromClientId);
+        ClientDIFCPrivs client = getOrCreateClient(clientId);
+
+        if(!ownerClient.owns.contains(tagName))
+            throw new UnAuthorizedClientException("Client '" + clientId + "' is unauthorized to perform this operation as you do NOT own this tag.");
+
+        ownerClient.owns.remove(tagName);
+        client.canAdd.add(tagName);
+
+        return OK;
     }
 
     public int getTagCount()
