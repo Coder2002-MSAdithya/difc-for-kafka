@@ -169,6 +169,8 @@ class KafkaApis(val requestChannel: RequestChannel,
       requestHelper.handleError(request, e)
     }
 
+    info(s"Received API key = ${request.header.apiKey}")
+
     try {
       trace(s"Handling request:${request.requestDesc(true)} from connection ${request.context.connectionId};" +
         s"securityProtocol:${request.context.securityProtocol},principal:${request.context.principal}")
@@ -291,6 +293,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     try
     {
       // TagRegistrar is the authority: if this succeeds, tagId > 0
+      info("Handling CREATE_TAG request")
       val resultId = tagRegistrar.createTag(tagName, clientId)
       tagId = resultId
       error = Errors.NONE
@@ -325,6 +328,8 @@ class KafkaApis(val requestChannel: RequestChannel,
       .setErrorCode(error.code)
       .setErrorMessage(errorMessage)
       .setTagId(tagId)
+
+    info(tagRegistrar.toString)
 
     val response = new CreateTagResponse(responseData)
     requestHelper.sendMaybeThrottle(request, response)

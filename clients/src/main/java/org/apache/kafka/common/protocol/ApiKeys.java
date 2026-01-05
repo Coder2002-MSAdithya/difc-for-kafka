@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.common.protocol;
 
+import org.apache.kafka.clients.admin.internals.ApiRequestScope;
 import org.apache.kafka.common.message.ApiMessageType;
 import org.apache.kafka.common.message.ApiVersionsResponseData;
 import org.apache.kafka.common.protocol.types.Schema;

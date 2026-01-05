@@ -9205,7 +9205,7 @@ class KafkaApisTest extends Logging {
   }
 
   private def buildRequestWithCustomClientId(request : AbstractRequest, clientId : String) : RequestChannel.Request = {
-     buildRequest(request, ListenerName.forSecurityProtocol(SecurityProtocol.PLAINTEXT), fromPrivilegedListener = false, None, requestChannelMetrics, clientId)
+     buildRequest(request, ListenerName.forSecurityProtocol(SecurityProtocol.SSL), fromPrivilegedListener = false, None, requestChannelMetrics, clientId)
   }
 
   private def verifyNoThrottling[T <: AbstractResponse](

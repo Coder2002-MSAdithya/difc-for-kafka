@@ -3,10 +3,8 @@ package org.apache.kafka.common.requests;
 import java.nio.ByteBuffer;
 
 import org.apache.kafka.common.message.CreateTagRequestData;
-import org.apache.kafka.common.protocol.ApiKeys;
-import org.apache.kafka.common.protocol.ObjectSerializationCache;
-import org.apache.kafka.common.protocol.Writable;
-import org.apache.kafka.common.protocol.ByteBufferAccessor;
+import org.apache.kafka.common.message.CreateTagResponseData;
+import org.apache.kafka.common.protocol.*;
 
 /**
  * Request class for the CreateTag API.
@@ -74,6 +72,12 @@ public class CreateTagRequest extends AbstractRequest {
 
     @Override
     public AbstractResponse getErrorResponse(int throttleTimeMs, Throwable e) {
-        return null;
+        Errors error = Errors.forException(e);
+        return new CreateTagResponse(
+                new CreateTagResponseData()
+                        .setErrorCode(error.code())
+                        .setErrorMessage(error.message())
+                        .setTagId(0)
+        );
     }
 }
