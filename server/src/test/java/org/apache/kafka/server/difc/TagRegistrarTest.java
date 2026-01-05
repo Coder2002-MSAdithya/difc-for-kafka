@@ -20,13 +20,13 @@ class TagRegistrarTest {
         assertTrue(registrar.hasTag("tagA"));
         assertEquals(3, registrar.getClientCount()); // client1,2,3
 
-        ClientDIFCPrivs c1 = registrar.getClientPrivs("client1");
-        assertTrue(c1.owns.contains("tagA"));
-        assertTrue(c1.owns.contains("tagB"));
-        assertTrue(c1.canAdd.contains("tagC"));
-        assertTrue(c1.canRemove.contains("tagD"));
-        assertTrue(c1.tags.contains("tagA"));
-        assertTrue(c1.tags.contains("tagB"));
+        ClientDIFCPrivs c1 = registrar.getClient("client1");
+        assertTrue(c1.getOwnedTags().contains("tagA"));
+        assertTrue(c1.getOwnedTags().contains("tagB"));
+        assertTrue(c1.getAddCapabilities().contains("tagC"));
+        assertTrue(c1.getRemoveCapabilities().contains("tagD"));
+        assertTrue(c1.getTags().contains("tagA"));
+        assertTrue(c1.getTags().contains("tagB"));
     }
 
     @Test
@@ -39,8 +39,8 @@ class TagRegistrarTest {
         assertTrue(tagId > 0);
         assertTrue(registrar.hasTag("newTag"));
 
-        ClientDIFCPrivs client = registrar.getClientPrivs("clientX");
-        assertTrue(client.owns.contains("newTag"));
+        ClientDIFCPrivs client = registrar.getClient("clientX");
+        assertTrue(client.getOwnedTags().contains("newTag"));
     }
 
     @Test
@@ -71,7 +71,7 @@ class TagRegistrarTest {
 
         assertThrows(InvalidTagNameException.class,
                 () -> registrar.createTag("invalid@tag", "clientX"));
-        assertFalse(registrar.hasTag("invalid@tag"));
+        assertThrows(InvalidTagNameException.class, () -> registrar.hasTag("invalid@tag"));
     }
 
     @Test
@@ -81,12 +81,12 @@ class TagRegistrarTest {
         registrar.registerClient("clientX");
         registrar.createTag("toDestroy", "clientX");
 
-        int result = registrar.destroyTag("toDestroy");
+        int result = registrar.destroyTag("toDestroy", "clientX");
         assertEquals(0, result);
         assertFalse(registrar.hasTag("toDestroy"));
 
-        ClientDIFCPrivs client = registrar.getClientPrivs("clientX");
-        assertFalse(client.owns.contains("toDestroy"));
+        ClientDIFCPrivs client = registrar.getClient("clientX");
+        assertFalse(client.getOwnedTags().contains("toDestroy"));
     }
 
     @Test
@@ -94,7 +94,7 @@ class TagRegistrarTest {
     {
         TagRegistrar registrar = new TagRegistrar();
         assertThrows(TagNotFoundException.class,
-                () -> registrar.destroyTag("nonexistent"));
+                () -> registrar.destroyTag("nonexistent", "clientX"));
     }
 
     @Test
@@ -119,8 +119,8 @@ class TagRegistrarTest {
         int result = registrar.addClientPrivs("clientY", "privTag", Capability.CAN_ADD);
         assertEquals(0, result);
 
-        ClientDIFCPrivs clientY = registrar.getClientPrivs("clientY");
-        assertTrue(clientY.canAdd.contains("privTag"));
+        ClientDIFCPrivs clientY = registrar.getClient("clientY");
+        assertTrue(clientY.getAddCapabilities().contains("privTag"));
     }
 
     @Test
@@ -144,8 +144,8 @@ class TagRegistrarTest {
         int result = registrar.removeClientPrivs("clientY", "privTag", Capability.CAN_ADD);
         assertEquals(0, result);
 
-        ClientDIFCPrivs clientY = registrar.getClientPrivs("clientY");
-        assertFalse(clientY.canAdd.contains("privTag"));
+        ClientDIFCPrivs clientY = registrar.getClient("clientY");
+        assertFalse(clientY.getAddCapabilities().contains("privTag"));
     }
 
     @Test
@@ -178,12 +178,12 @@ class TagRegistrarTest {
         registrar.createTag("tagY", "client1");
         registrar.addClientPrivs("client2", "tagX", Capability.CAN_ADD); // Ensure client2 is created
 
-        ClientDIFCPrivs sender = registrar.getClientPrivs("client1");
-        ClientDIFCPrivs receiver = registrar.getClientPrivs("client2");
+        ClientDIFCPrivs sender = registrar.getClient("client1");
+        ClientDIFCPrivs receiver = registrar.getClient("client2");
 
-        sender.tags.add("tagX");
-        receiver.tags.add("tagX");
-        receiver.tags.add("tagY");
+        sender.addTag("tagX");
+        receiver.addTag("tagX");
+        receiver.addTag("tagY");
 
         Set<String> messageTags = new HashSet<>(Arrays.asList("tagY"));
         assertTrue(registrar.canClientReceive("client1", "client2", messageTags));
@@ -200,11 +200,11 @@ class TagRegistrarTest {
         registrar.createTag("tagY", "client1");
         registrar.addClientPrivs("client2", "tagX", Capability.CAN_ADD); // Ensure client2 is created
 
-        ClientDIFCPrivs sender = registrar.getClientPrivs("client1");
-        ClientDIFCPrivs receiver = registrar.getClientPrivs("client2");
+        ClientDIFCPrivs sender = registrar.getClient("client1");
+        ClientDIFCPrivs receiver = registrar.getClient("client2");
 
-        sender.tags.add("tagX");
-        receiver.tags.add("tagX");
+        sender.addTag("tagX");
+        receiver.addTag("tagX");
 
         Set<String> messageTags = new HashSet<>(Arrays.asList("tagY"));
         assertFalse(registrar.canClientReceive("client1", "client2", messageTags));
@@ -215,7 +215,7 @@ class TagRegistrarTest {
     {
         TagRegistrar registrar = new TagRegistrar();
 
-        assertThrows(OwnerNotFoundException.class,
+        assertThrows(ClientNotFoundException.class,
                 () -> registrar.createTag("newTag", "unknown"));
         assertFalse(registrar.hasTag("newTag"));
     }
@@ -224,9 +224,13 @@ class TagRegistrarTest {
     void testRegisterClientSuccess()
     {
         TagRegistrar registrar = new TagRegistrar();
-        int result = registrar.registerClient("newClient");
-        assertEquals(0, result);
-        assertNotNull(registrar.getClientPrivs("newClient"));
+        ClientDIFCPrivs newClient = registrar.registerClient("newClient");
+        assertEquals("newClient", newClient.getClientId());
+        assertTrue(newClient.getTags().isEmpty());
+        assertTrue(newClient.getAddCapabilities().isEmpty());
+        assertTrue(newClient.getRemoveCapabilities().isEmpty());
+        assertTrue(newClient.getOwnedTags().isEmpty());
+        assertNotNull(registrar.getClient("newClient"));
     }
 
     @Test
@@ -246,8 +250,8 @@ class TagRegistrarTest {
         registrar.initialize();
 
         Set<String> messageTags = new HashSet<>();
-        assertFalse(registrar.canClientReceive("nonexistent", "client1", messageTags));
-        assertFalse(registrar.canClientReceive("client1", "nonexistent", messageTags));
+        assertThrows(ClientNotFoundException.class, () -> registrar.canClientReceive("nonexistent", "client1", messageTags));
+        assertThrows(ClientNotFoundException.class, () -> registrar.canClientReceive("client1", "nonexistent", messageTags));
     }
 
     @Test

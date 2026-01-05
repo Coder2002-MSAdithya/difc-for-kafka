@@ -22,32 +22,32 @@ public class TagTest {
 
     @Test
     public void testEmptyTagName() {
-        assertThrows(IllegalArgumentException.class, () -> new Tag("", "owner1"));
+        assertThrows(InvalidTagNameException.class, () -> new Tag("", "owner1"));
         System.out.println("testEmptyTagName passed (expected exception thrown)");
     }
 
     @Test
     public void testTooLongTagName() {
         String longName = "this_is_way_too_long_for_a_tag_name";
-        assertThrows(IllegalArgumentException.class, () -> new Tag(longName, "owner1"));
+        assertThrows(InvalidTagNameException.class, () -> new Tag(longName, "owner1"));
         System.out.println("testTooLongTagName passed (expected exception thrown)");
     }
 
     @Test
     public void testInvalidCharactersInTagName() {
-        assertThrows(IllegalArgumentException.class, () -> new Tag("invalid@tag", "owner1"));
+        assertThrows(InvalidTagNameException.class, () -> new Tag("invalid@tag", "owner1"));
         System.out.println("testInvalidCharactersInTagName passed (expected exception thrown)");
     }
 
     @Test
     public void testNullTagName() {
-        assertThrows(NullPointerException.class, () -> new Tag(null, "owner1"));
+        assertThrows(NullInputException.class, () -> new Tag(null, "owner1"));
         System.out.println("testNullTagName passed (expected exception thrown)");
     }
 
     @Test
     public void testNullOwnerClient() {
-        assertThrows(NullPointerException.class, () -> new Tag("valid_tag", null));
+        assertThrows(NullInputException.class, () -> new Tag("valid_tag", null));
         System.out.println("testNullOwnerClient passed (expected exception thrown)");
     }
 

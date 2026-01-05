@@ -8,17 +8,17 @@ public class ClientDIFCPrivsTest {
     @Test
     public void testCreation() {
         ClientDIFCPrivs privs = new ClientDIFCPrivs("client1");
-        assertEquals("client1", privs.clientId);
-        assertTrue(privs.tags.isEmpty());
-        assertTrue(privs.canAdd.isEmpty());
-        assertTrue(privs.canRemove.isEmpty());
-        assertTrue(privs.owns.isEmpty());
+        assertEquals("client1", privs.getClientId());
+        assertTrue(privs.getTags().isEmpty());
+        assertTrue(privs.getAddCapabilities().isEmpty());
+        assertTrue(privs.getRemoveCapabilities().isEmpty());
+        assertTrue(privs.getOwnedTags().isEmpty());
         System.out.println("testCreation passed");
     }
 
     @Test
     public void testNullClientId() {
-        assertThrows(NullPointerException.class, () -> new ClientDIFCPrivs(null));
+        assertThrows(NullInputException.class, () -> new ClientDIFCPrivs(null));
         System.out.println("testNullClientId passed (expected exception thrown)");
     }
 
@@ -26,21 +26,21 @@ public class ClientDIFCPrivsTest {
     public void testSetOperations() {
         ClientDIFCPrivs privs = new ClientDIFCPrivs("client1");
 
-        privs.tags.add("tagA");
-        assertTrue(privs.tags.contains("tagA"));
-        assertEquals(1, privs.tags.size());
+        privs.addTag("tagA");
+        assertTrue(privs.getTags().contains("tagA"));
+        assertEquals(1, privs.getTags().size());
 
-        privs.canAdd.add("tagB");
-        assertTrue(privs.canAdd.contains("tagB"));
+        privs.addCapability("tagB", Capability.CAN_ADD);
+        assertTrue(privs.getAddCapabilities().contains("tagB"));
 
-        privs.canRemove.add("tagC");
-        assertTrue(privs.canRemove.contains("tagC"));
+        privs.addCapability("tagC", Capability.CAN_REMOVE);
+        assertTrue(privs.getRemoveCapabilities().contains("tagC"));
 
-        privs.owns.add("tagD");
-        assertTrue(privs.owns.contains("tagD"));
+        privs.addOwnership("tagD");
+        assertTrue(privs.getOwnedTags().contains("tagD"));
 
-        privs.tags.remove("tagA");
-        assertFalse(privs.tags.contains("tagA"));
+        privs.removeTag("tagA");
+        assertFalse(privs.getTags().contains("tagA"));
 
         System.out.println("testSetOperations passed");
     }
@@ -48,7 +48,7 @@ public class ClientDIFCPrivsTest {
     @Test
     public void testToString() {
         ClientDIFCPrivs privs = new ClientDIFCPrivs("client1");
-        privs.tags.add("tagA");
+        privs.addTag("tagA");
         String str = privs.toString();
         assertTrue(str.contains("clientId='client1'"));
         assertTrue(str.contains("tags=[tagA]"));
