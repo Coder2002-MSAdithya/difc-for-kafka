@@ -1,26 +1,129 @@
 package org.apache.kafka.server.difc;
-
-import javax.print.DocFlavor;
 import java.util.Collections;
-import java.util.HashSet;
-import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class ClientDIFCPrivs
 {
-    public final String clientId;
-    public final Set<String> tags; // current label of the DIFC client
-    public final Set<String> canAdd;
-    public final Set<String> canRemove;
-    public final Set<String> owns;
+    private final String clientId;
+    private final Set<String> tags; // current label of the DIFC client
+    private final Set<String> canAdd;
+    private final Set<String> canRemove;
+    private final Set<String> owns;
 
     public ClientDIFCPrivs(String clientId)
     {
-        this.clientId = Objects.requireNonNull(clientId, "clientId");
-        this.tags = Collections.synchronizedSet(new HashSet<>());
-        this.canAdd = Collections.synchronizedSet(new HashSet<>());
-        this.canRemove = Collections.synchronizedSet(new HashSet<>());
-        this.owns = Collections.synchronizedSet(new HashSet<>());
+        TagRegistrar.isValidClientId(clientId);
+        this.clientId = clientId;
+        this.tags = ConcurrentHashMap.newKeySet();
+        this.canAdd = ConcurrentHashMap.newKeySet();
+        this.canRemove = ConcurrentHashMap.newKeySet();
+        this.owns = ConcurrentHashMap.newKeySet();
+    }
+
+    public boolean owns(String tagName)
+    {
+        TagRegistrar.isValidTagName(tagName);
+        return owns.contains(tagName);
+    }
+
+    public boolean canAdd(String tagName)
+    {
+        TagRegistrar.isValidTagName(tagName);
+        return canAdd.contains(tagName);
+    }
+
+    public boolean canRemove(String tagName)
+    {
+        TagRegistrar.isValidTagName(tagName);
+        return canRemove.contains(tagName);
+    }
+
+    public String getClientId()
+    {
+        return clientId;
+    }
+
+    public void addTag(String tagName)
+    {
+        TagRegistrar.isValidTagName(tagName);
+        tags.add(tagName);
+    }
+
+    public void removeTag(String tagName)
+    {
+        TagRegistrar.isValidTagName(tagName);
+        tags.remove(tagName);
+    }
+
+    public void addCapability(String tagName, Capability cap)
+    {
+        TagRegistrar.isValidTagName(tagName);
+        switch (cap)
+        {
+            case CAN_ADD:
+                canAdd.add(tagName);
+                break;
+            case CAN_REMOVE:
+                canRemove.add(tagName);
+                break;
+            default:
+                throw new CapabilityException("Unsupported capability " + cap);
+        }
+    }
+
+    public void removeCapability(String tagName, Capability cap)
+    {
+        TagRegistrar.isValidTagName(tagName);
+        switch(cap)
+        {
+            case CAN_ADD:
+                canAdd.remove(tagName);
+                break;
+            case CAN_REMOVE:
+                canRemove.remove(tagName);
+                break;
+            default:
+                throw new CapabilityException("Unsupported capability " + cap);
+        }
+    }
+
+    public void addOwnership(String tagName)
+    {
+        TagRegistrar.isValidTagName(tagName);
+        owns.add(tagName);
+    }
+
+    public void removeOwnership(String tagName)
+    {
+        TagRegistrar.isValidTagName(tagName);
+        owns.remove(tagName);
+    }
+
+    public Set<String> getTags()
+    {
+        return Collections.unmodifiableSet(tags);
+    }
+
+    public Set<String> getAddCapabilities()
+    {
+        Set<String> caps = ConcurrentHashMap.newKeySet();
+        caps.addAll(canAdd);
+        caps.addAll(owns);
+        return Collections.unmodifiableSet(caps);
+    }
+
+    public Set<String> getRemoveCapabilities()
+    {
+        Set<String> caps = ConcurrentHashMap.newKeySet();
+        caps.addAll(canRemove);
+        caps.addAll(owns);
+        return Collections.unmodifiableSet(caps);
+    }
+
+    public Set<String> getOwnedTags()
+    {
+        return Collections.unmodifiableSet(owns);
     }
 
     @Override

@@ -11,28 +11,14 @@ public final class Tag
     public final String ownerClient;
 
     private static final SecureRandom RNG = new SecureRandom();
-    public static final String NAME_PATTERN = "^[A-Za-z0-9_-]+$";
-    public static final int MAX_TAG_LENGTH = 16;
 
     public Tag(String tagName, String ownerClient)
     {
-        this.tagName = Objects.requireNonNull(tagName, "tagName");
-        this.ownerClient = Objects.requireNonNull(ownerClient, "ownerClient");
+        TagRegistrar.isValidTagName(tagName);
+        TagRegistrar.isValidClientId(ownerClient);
 
-        if (tagName.isEmpty())
-        {
-            throw new IllegalArgumentException("tagName must not be empty");
-        }
-
-        if (tagName.length() > MAX_TAG_LENGTH)
-        {
-            throw new IllegalArgumentException("tagName must not exceed " + MAX_TAG_LENGTH + " characters");
-        }
-
-        if (!tagName.matches(NAME_PATTERN))
-        {
-            throw new IllegalArgumentException("tagName contains invalid characters; only alphanumeric, '_' and '-' allowed");
-        }
+        this.tagName = tagName;
+        this.ownerClient = ownerClient;
 
         // Generate a sufficiently large unique-ish positive 31-bit id by mixing secure random,
         // current time and a UUID hash. Not strictly collision-free but very unlikely to collide.
