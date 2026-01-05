@@ -59,6 +59,7 @@ import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.Headers;
 import org.apache.kafka.common.header.internals.RecordHeaders;
 import org.apache.kafka.common.internals.ClusterResourceListeners;
+import org.apache.kafka.common.message.CreateTagResponseData;
 import org.apache.kafka.common.metrics.KafkaMetric;
 import org.apache.kafka.common.metrics.KafkaMetricsContext;
 import org.apache.kafka.common.metrics.MetricConfig;
@@ -1484,6 +1485,19 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
     // Visible for testing
     TransactionManager getTransactionManager() {
         return transactionManager;
+    }
+
+    public CreateTagResponseData sendCreateTagRequest(String tagName)
+    {
+        throwIfProducerClosed();
+        try
+        {
+            return sender.sendCreateTagRequest(tagName).get();
+        }
+        catch(Exception e)
+        {
+            throw new KafkaException("CreateTag failed", e);
+        }
     }
 
     private static class ClusterAndWaitTime {

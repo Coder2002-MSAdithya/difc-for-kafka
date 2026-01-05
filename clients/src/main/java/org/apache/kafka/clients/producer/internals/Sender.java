@@ -40,22 +40,22 @@ import org.apache.kafka.common.errors.TopicAuthorizationException;
 import org.apache.kafka.common.errors.TransactionAbortedException;
 import org.apache.kafka.common.errors.TransactionalIdAuthorizationException;
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
+import org.apache.kafka.common.message.CreateTagRequestData;
+import org.apache.kafka.common.message.CreateTagResponseData;
 import org.apache.kafka.common.message.ProduceRequestData;
 import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.common.metrics.stats.Avg;
 import org.apache.kafka.common.metrics.stats.Max;
 import org.apache.kafka.common.metrics.stats.Meter;
+import org.apache.kafka.common.protocol.ApiKeys;
 import org.apache.kafka.common.protocol.Errors;
 import org.apache.kafka.common.record.MemoryRecords;
 import org.apache.kafka.common.record.RecordBatch;
-import org.apache.kafka.common.requests.AbstractRequest;
-import org.apache.kafka.common.requests.FindCoordinatorRequest;
-import org.apache.kafka.common.requests.ProduceRequest;
-import org.apache.kafka.common.requests.ProduceResponse;
-import org.apache.kafka.common.requests.RequestHeader;
+import org.apache.kafka.common.requests.*;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.Time;
 
+import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 
 import java.io.IOException;
@@ -68,6 +68,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -922,6 +923,64 @@ public class Sender implements Runnable {
         produceThrottleTimeSensor.add(metrics.produceThrottleTimeAvg, new Avg());
         produceThrottleTimeSensor.add(metrics.produceThrottleTimeMax, new Max());
         return produceThrottleTimeSensor;
+    }
+
+    public CompletableFuture<CreateTagResponseData> sendCreateTagRequest(String tagName)
+    {
+        CompletableFuture<CreateTagResponseData> future = new CompletableFuture<>();
+        long deadline = time.milliseconds() + requestTimeoutMs;
+        Node node = null;
+
+        while (node == null && time.milliseconds() < deadline)
+        {
+            metadata.requestUpdate(true);
+            wakeup();
+
+            for (Node n : metadata.fetch().nodes())
+            {
+                if (client.isReady(n, time.milliseconds()))
+                {
+                    node = n;
+                    break;
+                }
+            }
+
+            if (node == null)
+            {
+                Utils.sleep(10);
+            }
+        }
+
+        if (node == null)
+        {
+            future.completeExceptionally(
+                    new TimeoutException("No ready broker available for CreateTag request")
+            );
+
+            return future;
+        }
+
+        CreateTagRequestData data = new CreateTagRequestData().setTagName(tagName);
+        CreateTagRequest.Builder builder = new CreateTagRequest.Builder(data);
+
+        ClientRequest request = client.newClientRequest(node.idString(),
+                builder,
+                time.milliseconds(),
+                true,
+                requestTimeoutMs,
+                response -> {
+                        try{
+                            future.complete((CreateTagResponseData) response.responseBody().data());
+                        }
+                        catch (Throwable t) {
+                            future.completeExceptionally(t);
+                        }
+                });
+
+        client.send(request, time.milliseconds());
+        wakeup();
+
+        return future;
     }
 
     /**
