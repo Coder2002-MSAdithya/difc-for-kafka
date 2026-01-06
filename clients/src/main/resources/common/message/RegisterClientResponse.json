@@ -1,0 +1,22 @@
+{
+  "apiKey": 103,
+  "type": "response",
+  "name": "RegisterClientResponse",
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    {
+      "name": "errorCode",
+      "type": "int16",
+      "versions": "0+",
+      "about": "0 if the client was registered successfully; otherwise a non-zero error code (e.g., CLIENT_ALREADY_EXISTS, INVALID_CLIENT_ID)."
+    },
+    {
+      "name": "errorMessage",
+      "type": "string",
+      "versions": "0+",
+      "nullableVersions": "0+",
+      "about": "A human-readable error message if errorCode is non-zero. Null or empty on success."
+    }
+  ]
+}

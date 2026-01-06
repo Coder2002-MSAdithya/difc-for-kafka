@@ -1,0 +1,16 @@
+{
+  "apiKey": 105,
+  "type": "request",
+  "name": "RemoveTagRequest",
+  "listeners": ["broker", "controller"],
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    {
+      "name": "tagName",
+      "type": "string",
+      "versions": "0+",
+      "about": "The name of the tag to remove from the requesting client's current label. The client must have CAN_REMOVE capability or ownership for this tag."
+    }
+  ]
+}

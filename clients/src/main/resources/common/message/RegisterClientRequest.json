@@ -1,0 +1,16 @@
+{
+  "apiKey": 103,
+  "type": "request",
+  "name": "RegisterClientRequest",
+  "listeners": ["broker", "controller"],
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    {
+      "name": "clientId",
+      "type": "string",
+      "versions": "0+",
+      "about": "The unique identifier of the client to register. Must be non-empty, within allowed length limits, and match '^[A-Za-z0-9_-]+$'."
+    }
+  ]
+}

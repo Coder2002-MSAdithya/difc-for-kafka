@@ -1,0 +1,28 @@
+{
+  "apiKey": 106,
+  "type": "request",
+  "name": "AddClientPrivsRequest",
+  "listeners": ["broker", "controller"],
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    {
+      "name": "clientId",
+      "type": "string",
+      "versions": "0+",
+      "about": "The client to whom the capability is being granted."
+    },
+    {
+      "name": "tagName",
+      "type": "string",
+      "versions": "0+",
+      "about": "The tag for which the capability is granted."
+    },
+    {
+      "name": "capability",
+      "type": "int8",
+      "versions": "0+",
+      "about": "The capability being granted: 0 = CAN_ADD, 1 = CAN_REMOVE."
+    }
+  ]
+}

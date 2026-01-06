@@ -1,0 +1,16 @@
+{
+  "apiKey": 104,
+  "type": "request",
+  "name": "AddTagRequest",
+  "listeners": ["broker", "controller"],
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    {
+      "name": "tagName",
+      "type": "string",
+      "versions": "0+",
+      "about": "The name of the tag to add to the requesting client's current label. The client must have CAN_ADD capability or ownership for this tag."
+    }
+  ]
+}

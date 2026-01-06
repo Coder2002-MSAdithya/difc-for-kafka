@@ -1,0 +1,28 @@
+{
+  "apiKey": 107,
+  "type": "request",
+  "name": "RemoveClientPrivsRequest",
+  "listeners": ["broker", "controller"],
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    {
+      "name": "clientId",
+      "type": "string",
+      "versions": "0+",
+      "about": "The client from whom the capability is being revoked."
+    },
+    {
+      "name": "tagName",
+      "type": "string",
+      "versions": "0+",
+      "about": "The tag for which the capability is revoked."
+    },
+    {
+      "name": "capability",
+      "type": "int8",
+      "versions": "0+",
+      "about": "The capability being revoked: 1 = CAN_ADD, 2 = CAN_REMOVE."
+    }
+  ]
+}

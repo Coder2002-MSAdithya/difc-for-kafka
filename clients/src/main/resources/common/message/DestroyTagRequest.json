@@ -1,0 +1,16 @@
+{
+  "apiKey": 102,
+  "type": "request",
+  "name": "DestroyTagRequest",
+  "listeners": ["broker", "controller"],
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    {
+      "name": "tagName",
+      "type": "string",
+      "versions": "0+",
+      "about": "The name of the tag to destroy. Must be non-empty, <= 16 chars, and match '^[A-Za-z0-9_-]+$'. The requesting client must own this tag."
+    }
+  ]
+}

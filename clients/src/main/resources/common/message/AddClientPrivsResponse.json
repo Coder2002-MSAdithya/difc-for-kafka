@@ -1,0 +1,22 @@
+{
+  "apiKey": 106,
+  "type": "response",
+  "name": "AddClientPrivsResponse",
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    {
+      "name": "errorCode",
+      "type": "int16",
+      "versions": "0+",
+      "about": "0 if the privilege was granted successfully; otherwise a non-zero error code (e.g., TAG_NOT_FOUND, UNAUTHORIZED_CLIENT, INVALID_CAPABILITY)."
+    },
+    {
+      "name": "errorMessage",
+      "type": "string",
+      "versions": "0+",
+      "nullableVersions": "0+",
+      "about": "A human-readable error message if errorCode is non-zero. Null or empty on success."
+    }
+  ]
+}
