@@ -1,0 +1,22 @@
+{
+  "apiKey": 108,
+  "type": "request",
+  "name": "GrantOwnerPrivilegesRequest",
+  "listeners": ["broker", "controller"],
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    {
+      "name": "clientId",
+      "type": "string",
+      "versions": "0+",
+      "about": "The client to whom ownership of the tag is being transferred."
+    },
+    {
+      "name": "tagName",
+      "type": "string",
+      "versions": "0+",
+      "about": "The tag whose ownership is being transferred."
+    }
+  ]
+}

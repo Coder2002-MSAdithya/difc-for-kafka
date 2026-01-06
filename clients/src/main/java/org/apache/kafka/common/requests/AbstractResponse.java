@@ -281,6 +281,20 @@ public abstract class AbstractResponse implements AbstractRequestResponse {
                 return ReadShareGroupStateSummaryResponse.parse(responseBuffer, version);
             case CREATE_TAG:
                 return CreateTagResponse.parse(responseBuffer, version);
+            case DESTROY_TAG:
+                return DestroyTagResponse.parse(responseBuffer, version);
+            case REGISTER_CLIENT:
+                return RegisterClientResponse.parse(responseBuffer, version);
+            case ADD_TAG:
+                return AddTagResponse.parse(responseBuffer, version);
+            case REMOVE_TAG:
+                return RemoveTagResponse.parse(responseBuffer, version);
+            case ADD_CLIENT_PRIVS:
+                return AddClientPrivsResponse.parse(responseBuffer, version);
+            case REMOVE_CLIENT_PRIVS:
+                return RemoveClientPrivsResponse.parse(responseBuffer, version);
+            case GRANT_OWNER_PRIVILEGES:
+                return GrantOwnerPrivilegesResponse.parse(responseBuffer, version);
             default:
                 throw new AssertionError(String.format("ApiKey %s is not currently handled in `parseResponse`, the " +
                         "code should be updated to do so.", apiKey));

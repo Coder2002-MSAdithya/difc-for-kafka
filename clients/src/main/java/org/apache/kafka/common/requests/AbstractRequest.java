@@ -344,6 +344,20 @@ public abstract class AbstractRequest implements AbstractRequestResponse {
                 return ReadShareGroupStateSummaryRequest.parse(buffer, apiVersion);
             case CREATE_TAG:
                 return CreateTagRequest.parse(buffer, apiVersion);
+            case DESTROY_TAG:
+                return DestroyTagRequest.parse(buffer, apiVersion);
+            case REGISTER_CLIENT:
+                return RegisterClientRequest.parse(buffer, apiVersion);
+            case ADD_TAG:
+                return AddTagRequest.parse(buffer, apiVersion);
+            case REMOVE_TAG:
+                return RemoveTagRequest.parse(buffer, apiVersion);
+            case ADD_CLIENT_PRIVS:
+                return AddClientPrivsRequest.parse(buffer, apiVersion);
+            case REMOVE_CLIENT_PRIVS:
+                return RemoveClientPrivsRequest.parse(buffer, apiVersion);
+            case GRANT_OWNER_PRIVILEGES:
+                return GrantOwnerPrivilegesRequest.parse(buffer, apiVersion);
             default:
                 throw new AssertionError(String.format("ApiKey %s is not currently handled in `parseRequest`, the " +
                         "code should be updated to do so.", apiKey));
