@@ -27,33 +27,111 @@ public class TagRegistrar
 
     public void initialize()
     {
-        // Initialize with hardcoded clients and tags for testing
-        // Create clients
-        ClientDIFCPrivs c1 = registerClient("client1");
-        ClientDIFCPrivs c2 = registerClient("client2");
-        ClientDIFCPrivs c3 = registerClient("client3");
+        /*
+         * DIFC setup for a food-delivery platform.
+         *
+         * Clients represent backend services:
+         *   - customerApp: order creation
+         *   - restaurantSvc: food preparation
+         *   - deliverySvc: delivery logistics
+         *   - paymentSvc: payments & refunds
+         *   - supportSvc: customer support & issue resolution
+         *   - auditSvc: compliance, fraud detection, logging
+         */
 
-        // Create tags and assign ownership
-        createTag("tagA", "client1");
-        createTag("tagB", "client1");
-        createTag("tagC", "client2");
-        createTag("tagD", "client3");
+        // ---- 1. Register clients (system services) ----
+        ClientDIFCPrivs customerApp   = registerClient("customerApp");
+        ClientDIFCPrivs restaurantSvc = registerClient("restaurantSvc");
+        ClientDIFCPrivs deliverySvc   = registerClient("deliverySvc");
+        ClientDIFCPrivs paymentSvc    = registerClient("paymentSvc");
+        ClientDIFCPrivs supportSvc    = registerClient("supportSvc");
+        ClientDIFCPrivs auditSvc      = registerClient("auditSvc");
 
-        // Add capabilities to the various clients
-        c1.addCapability("tagC", Capability.CAN_ADD);
-        c1.addCapability("tagD", Capability.CAN_REMOVE);
+        // ---- 2. Create DIFC tags (data classifications / order states) ----
+        // Ownership reflects which service governs that stage of the order lifecycle
+        createTag("ORDER_PLACED",     "customerApp");
+        createTag("FOOD_PREPARED",    "restaurantSvc");
+        createTag("OUT_FOR_DELIVERY", "deliverySvc");
+        createTag("PAYMENT_CAPTURED","paymentSvc");
+        createTag("REFUND_ISSUED",    "paymentSvc");
+        createTag("AUDIT_LOG",        "auditSvc");
 
-        c2.addCapability("tagA", Capability.CAN_ADD);
-        c2.addCapability("tagB", Capability.CAN_REMOVE);
+        // ---- 3. Grant cross-service capabilities ----
+        // Customer app can create new orders
+        customerApp.addCapability("ORDER_PLACED", Capability.CAN_ADD);
 
-        c3.addCapability("tagB", Capability.CAN_ADD);
-        c3.addCapability("tagC", Capability.CAN_REMOVE);
+        // Restaurant can mark food as prepared
+        restaurantSvc.addCapability("FOOD_PREPARED", Capability.CAN_ADD);
+        restaurantSvc.addCapability("FOOD_PREPARED", Capability.CAN_REMOVE);
 
-        c1.addTag("tagA");
-        c1.addTag("tagB");
-        c2.addTag("tagC");
-        c3.addTag("tagD");
+        // Delivery service manages delivery status
+        deliverySvc.addCapability("OUT_FOR_DELIVERY", Capability.CAN_ADD);
+        deliverySvc.addCapability("OUT_FOR_DELIVERY", Capability.CAN_REMOVE);
+
+        // Payment service manages payment and refunds
+        paymentSvc.addCapability("PAYMENT_CAPTURED", Capability.CAN_ADD);
+        paymentSvc.addCapability("PAYMENT_CAPTURED", Capability.CAN_REMOVE);
+        paymentSvc.addCapability("REFUND_ISSUED", Capability.CAN_ADD);
+
+        // Support can request refunds but cannot remove payment evidence
+        supportSvc.addCapability("REFUND_ISSUED", Capability.CAN_ADD);
+
+        // Audit can only add audit logs
+        auditSvc.addCapability("AUDIT_LOG", Capability.CAN_ADD);
+
+        // ---- 4. Initial security labels (runtime contexts) ----
+        // These represent the default context each service runs in
+
+        // Customer app starts orders
+        customerApp.addTag("ORDER_PLACED");
+
+        // Restaurant service processes prepared food
+        restaurantSvc.addTag("FOOD_PREPARED");
+
+        // Delivery service tracks active deliveries
+        deliverySvc.addTag("OUT_FOR_DELIVERY");
+
+        // Payment service handles financial state
+        paymentSvc.addTag("PAYMENT_CAPTURED");
+
+        // Support service may trigger refunds
+        supportSvc.addTag("REFUND_ISSUED");
+
+        // Audit service always runs in audit context
+        auditSvc.addTag("AUDIT_LOG");
+
+        /*
+         * Resulting enforced flow:
+         *
+         * customerApp
+         *   → ORDER_PLACED
+         *
+         * restaurantSvc
+         *   ← ORDER_PLACED
+         *   → FOOD_PREPARED
+         *
+         * deliverySvc
+         *   ← ORDER_PLACED + FOOD_PREPARED
+         *   → OUT_FOR_DELIVERY
+         *
+         * paymentSvc
+         *   ← ORDER_PLACED + FOOD_PREPARED
+         *   → PAYMENT_CAPTURED / REFUND_ISSUED
+         *
+         * supportSvc
+         *   ← PAYMENT_CAPTURED
+         *   → REFUND_ISSUED
+         *
+         * auditSvc
+         *   ← all stages (via AUDIT_LOG)
+         *
+         * This prevents:
+         *   - Delivery before preparation
+         *   - Refunds without payment
+         *   - Unauthorized state transitions
+         */
     }
+
 
     public ClientDIFCPrivs registerClient(String clientId)
     {
@@ -76,7 +154,7 @@ public class TagRegistrar
         isValidClientId(clientId);
         ClientDIFCPrivs c = clientsById.get(clientId);
         if(c == null)
-            throw new ClientNotFoundException("Client '" + clientId + "' does not exist");
+            throw new ClientNotFoundException("Client '" + clientId + "' does NOT exist");
         return c;
     }
 
