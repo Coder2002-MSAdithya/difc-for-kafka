@@ -17,7 +17,9 @@
 package org.apache.kafka.common.security.auth;
 
 import java.security.Principal;
-
+import java.util.Collections;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -46,6 +48,12 @@ public class KafkaPrincipal implements Principal {
 
     private final String principalType;
     private final String name;
+
+    private final Set<String> label = ConcurrentHashMap.newKeySet();
+    private final Set<String> canAdd = ConcurrentHashMap.newKeySet();
+    private final Set<String> canRemove = ConcurrentHashMap.newKeySet();
+    private final Set<String> owns = ConcurrentHashMap.newKeySet();
+
     private volatile boolean tokenAuthenticated;
 
     public KafkaPrincipal(String principalType, String name) {
@@ -95,5 +103,77 @@ public class KafkaPrincipal implements Principal {
 
     public boolean tokenAuthenticated() {
         return tokenAuthenticated;
+    }
+
+    public Set<String> getLabel()
+    {
+        return Collections.unmodifiableSet(label);
+    }
+
+    public Set<String> getAddCapabilities()
+    {
+        Set<String> caps = ConcurrentHashMap.newKeySet();
+        caps.addAll(canAdd);
+        caps.addAll(owns);
+        return Collections.unmodifiableSet(caps);
+    }
+
+    public Set<String> getRemoveCapabilities()
+    {
+        Set<String> caps = ConcurrentHashMap.newKeySet();
+        caps.addAll(canRemove);
+        caps.addAll(owns);
+        return Collections.unmodifiableSet(caps);
+    }
+
+    public Set<String> getOwnedTags()
+    {
+        return Collections.unmodifiableSet(owns);
+    }
+
+    public void addTag(String tag)
+    {
+        label.add(tag);
+    }
+
+    public void removeTag(String tag)
+    {
+        label.remove(tag);
+    }
+
+    public void addCapability(String tagName, Capability cap)
+    {
+        switch (cap)
+        {
+            case CAN_ADD:
+                canAdd.add(tagName);
+                break;
+            case CAN_REMOVE:
+                canRemove.add(tagName);
+                break;
+        }
+    }
+
+    public void removeCapability(String tagName, Capability cap)
+    {
+        switch(cap)
+        {
+            case CAN_ADD:
+                canAdd.remove(tagName);
+                break;
+            case CAN_REMOVE:
+                canRemove.remove(tagName);
+                break;
+        }
+    }
+
+    public void addOwnership(String tagName)
+    {
+        owns.add(tagName);
+    }
+
+    public void removeOwnership(String tagName)
+    {
+        owns.remove(tagName);
     }
 }

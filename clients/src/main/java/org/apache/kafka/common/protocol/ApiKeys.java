@@ -132,7 +132,15 @@ public enum ApiKeys {
     WRITE_SHARE_GROUP_STATE(ApiMessageType.WRITE_SHARE_GROUP_STATE, true),
     DELETE_SHARE_GROUP_STATE(ApiMessageType.DELETE_SHARE_GROUP_STATE, true),
     READ_SHARE_GROUP_STATE_SUMMARY(ApiMessageType.READ_SHARE_GROUP_STATE_SUMMARY, true),
-    CREATE_TAG(ApiMessageType.CREATE_TAG, false);
+    CREATE_TAG(ApiMessageType.CREATE_TAG, false),
+    DESTROY_TAG(ApiMessageType.DESTROY_TAG, false),
+    REGISTER_CLIENT(ApiMessageType.REGISTER_CLIENT, false),
+    ADD_TAG(ApiMessageType.ADD_TAG, false),
+    REMOVE_TAG(ApiMessageType.REMOVE_TAG, false),
+    ADD_CLIENT_PRIVS(ApiMessageType.ADD_CLIENT_PRIVS, false),
+    REMOVE_CLIENT_PRIVS(ApiMessageType.REMOVE_CLIENT_PRIVS, false),
+    GRANT_OWNER_PRIVILEGES(ApiMessageType.GRANT_OWNER_PRIVILEGES, false);
+
 
     private static final Map<ApiMessageType.ListenerType, EnumSet<ApiKeys>> APIS_BY_LISTENER =
         new EnumMap<>(ApiMessageType.ListenerType.class);
