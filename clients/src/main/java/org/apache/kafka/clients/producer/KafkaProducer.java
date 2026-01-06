@@ -59,7 +59,7 @@ import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.Headers;
 import org.apache.kafka.common.header.internals.RecordHeaders;
 import org.apache.kafka.common.internals.ClusterResourceListeners;
-import org.apache.kafka.common.message.CreateTagResponseData;
+import org.apache.kafka.common.message.*;
 import org.apache.kafka.common.metrics.KafkaMetric;
 import org.apache.kafka.common.metrics.KafkaMetricsContext;
 import org.apache.kafka.common.metrics.MetricConfig;
@@ -92,6 +92,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -1487,17 +1488,70 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         return transactionManager;
     }
 
+    private <T> T await(CompletableFuture<T> future, String errorMessage)
+    {
+        try {
+            return future.get();
+        } catch (Exception e) {
+            throw new KafkaException(errorMessage, e);
+        }
+    }
+
     public CreateTagResponseData sendCreateTagRequest(String tagName)
     {
         throwIfProducerClosed();
-        try
-        {
-            return sender.sendCreateTagRequest(tagName).get();
-        }
-        catch(Exception e)
-        {
-            throw new KafkaException("CreateTag failed", e);
-        }
+        return await(sender.sendCreateTagRequest(tagName), "CreateTag failed");
+    }
+
+    public DestroyTagResponseData sendDestroyTagRequest(String tagName)
+    {
+        throwIfProducerClosed();
+        return await(sender.sendDestroyTagRequest(tagName), "DestroyTag failed");
+    }
+
+    public RegisterClientResponseData sendRegisterClientRequest(String clientId)
+    {
+        throwIfProducerClosed();
+        return await(sender.sendRegisterClientRequest(clientId), "RegisterClient failed");
+    }
+
+    public AddTagResponseData sendAddTagRequest(String tagName)
+    {
+        throwIfProducerClosed();
+        return await(sender.sendAddTagRequest(tagName), "AddTag failed");
+    }
+
+    public RemoveTagResponseData sendRemoveTagRequest(String tagName)
+    {
+        throwIfProducerClosed();
+        return await(sender.sendRemoveTagRequest(tagName), "RemoveTag failed");
+    }
+
+    public AddClientPrivsResponseData sendAddClientPrivsRequest(String targetClientId, String tagName, byte capability)
+    {
+        throwIfProducerClosed();
+        return await(
+                sender.sendAddClientPrivsRequest(targetClientId, tagName, capability),
+                "AddClientPrivs failed"
+        );
+    }
+
+    public RemoveClientPrivsResponseData sendRemoveClientPrivsRequest(String targetClientId, String tagName, byte capability)
+    {
+        throwIfProducerClosed();
+        return await(
+                sender.sendRemoveClientPrivsRequest(targetClientId, tagName, capability),
+                "RemoveClientPrivs failed"
+        );
+    }
+
+    public GrantOwnerPrivilegesResponseData sendGrantOwnerPrivilegesRequest(String targetClientId, String tagName)
+    {
+        throwIfProducerClosed();
+        return await(
+                sender.sendGrantOwnerPrivilegesRequest(targetClientId, tagName),
+                "GrantOwnerPrivileges failed"
+        );
     }
 
     private static class ClusterAndWaitTime {

@@ -40,9 +40,7 @@ import org.apache.kafka.common.errors.TopicAuthorizationException;
 import org.apache.kafka.common.errors.TransactionAbortedException;
 import org.apache.kafka.common.errors.TransactionalIdAuthorizationException;
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
-import org.apache.kafka.common.message.CreateTagRequestData;
-import org.apache.kafka.common.message.CreateTagResponseData;
-import org.apache.kafka.common.message.ProduceRequestData;
+import org.apache.kafka.common.message.*;
 import org.apache.kafka.common.metrics.Sensor;
 import org.apache.kafka.common.metrics.stats.Avg;
 import org.apache.kafka.common.metrics.stats.Max;
@@ -925,9 +923,12 @@ public class Sender implements Runnable {
         return produceThrottleTimeSensor;
     }
 
-    public CompletableFuture<CreateTagResponseData> sendCreateTagRequest(String tagName)
+    private <T> CompletableFuture<T> sendDIFCRequest(
+            AbstractRequest.Builder<?> builder,
+            Class<T> responseDataClass,
+            String timeoutMessage)
     {
-        CompletableFuture<CreateTagResponseData> future = new CompletableFuture<>();
+        CompletableFuture<T> future = new CompletableFuture<>();
         long deadline = time.milliseconds() + requestTimeoutMs;
         Node node = null;
 
@@ -946,41 +947,157 @@ public class Sender implements Runnable {
             }
 
             if (node == null)
-            {
                 Utils.sleep(10);
-            }
         }
 
         if (node == null)
         {
             future.completeExceptionally(
-                    new TimeoutException("No ready broker available for CreateTag request")
+                    new TimeoutException(timeoutMessage)
             );
-
             return future;
         }
 
-        CreateTagRequestData data = new CreateTagRequestData().setTagName(tagName);
-        CreateTagRequest.Builder builder = new CreateTagRequest.Builder(data);
-
-        ClientRequest request = client.newClientRequest(node.idString(),
+        ClientRequest request = client.newClientRequest(
+                node.idString(),
                 builder,
                 time.milliseconds(),
                 true,
                 requestTimeoutMs,
                 response -> {
-                        try{
-                            future.complete((CreateTagResponseData) response.responseBody().data());
-                        }
-                        catch (Throwable t) {
-                            future.completeExceptionally(t);
-                        }
+                    try {
+                        Object data = response.responseBody().data();
+                        future.complete(responseDataClass.cast(data));
+                    } catch (Throwable t) {
+                        future.completeExceptionally(t);
+                    }
                 });
 
         client.send(request, time.milliseconds());
         wakeup();
 
         return future;
+    }
+
+    public CompletableFuture<CreateTagResponseData> sendCreateTagRequest(String tagName)
+    {
+        CreateTagRequestData data =
+                new CreateTagRequestData().setTagName(tagName);
+
+        CreateTagRequest.Builder builder =
+                new CreateTagRequest.Builder(data);
+
+        return sendDIFCRequest(
+                builder,
+                CreateTagResponseData.class,
+                "No ready broker available for CreateTag request"
+        );
+    }
+
+    public CompletableFuture<RegisterClientResponseData> sendRegisterClientRequest(String clientId)
+    {
+        RegisterClientRequestData data =
+                new RegisterClientRequestData().setClientId(clientId);
+
+        RegisterClientRequest.Builder builder =
+                new RegisterClientRequest.Builder(data);
+
+        return sendDIFCRequest(
+                builder,
+                RegisterClientResponseData.class,
+                "No ready broker available for RegisterClient request"
+        );
+    }
+
+    public CompletableFuture<AddTagResponseData> sendAddTagRequest(String tagName)
+    {
+        AddTagRequestData data =
+                new AddTagRequestData().setTagName(tagName);
+
+        AddTagRequest.Builder builder =
+                new AddTagRequest.Builder(data);
+
+        return sendDIFCRequest(
+                builder,
+                AddTagResponseData.class,
+                "No ready broker available for AddTag request"
+        );
+    }
+
+    public CompletableFuture<RemoveTagResponseData> sendRemoveTagRequest(String tagName)
+    {
+        RemoveTagRequestData data =
+                new RemoveTagRequestData().setTagName(tagName);
+
+        RemoveTagRequest.Builder builder =
+                new RemoveTagRequest.Builder(data);
+
+        return sendDIFCRequest(
+                builder,
+                RemoveTagResponseData.class,
+                "No ready broker available for RemoveTag request"
+        );
+    }
+
+    public CompletableFuture<AddClientPrivsResponseData> sendAddClientPrivsRequest(String targetClientId, String tagName, byte capability)
+    {
+        AddClientPrivsRequestData data =
+                new AddClientPrivsRequestData()
+                        .setClientId(targetClientId)
+                        .setTagName(tagName)
+                        .setCapability(capability);
+
+        AddClientPrivsRequest.Builder builder =
+                new AddClientPrivsRequest.Builder(data);
+
+        return sendDIFCRequest(
+                builder,
+                AddClientPrivsResponseData.class,
+                "No ready broker available for AddClientPrivs request"
+        );
+    }
+
+    public CompletableFuture<RemoveClientPrivsResponseData> sendRemoveClientPrivsRequest(String targetClientId, String tagName, byte capability)
+    {
+        RemoveClientPrivsRequestData data =
+                new RemoveClientPrivsRequestData()
+                        .setClientId(targetClientId)
+                        .setTagName(tagName)
+                        .setCapability(capability);
+
+        RemoveClientPrivsRequest.Builder builder =
+                new RemoveClientPrivsRequest.Builder(data);
+
+        return sendDIFCRequest(
+                builder,
+                RemoveClientPrivsResponseData.class,
+                "No ready broker available for RemoveClientPrivs request"
+        );
+    }
+
+    public CompletableFuture<GrantOwnerPrivilegesResponseData> sendGrantOwnerPrivilegesRequest(String targetClientId, String tagName)
+    {
+        GrantOwnerPrivilegesRequestData data =
+                new GrantOwnerPrivilegesRequestData()
+                        .setClientId(targetClientId)
+                        .setTagName(tagName);
+
+        GrantOwnerPrivilegesRequest.Builder builder =
+                new GrantOwnerPrivilegesRequest.Builder(data);
+
+        return sendDIFCRequest(
+                builder,
+                GrantOwnerPrivilegesResponseData.class,
+                "No ready broker available for GrantOwnerPrivileges request"
+        );
+    }
+
+    public CompletableFuture<DestroyTagResponseData> sendDestroyTagRequest(String tagName)
+    {
+        DestroyTagRequestData data = new DestroyTagRequestData().setTagName(tagName);
+        DestroyTagRequest.Builder builder = new DestroyTagRequest.Builder(data);
+
+        return sendDIFCRequest(builder, DestroyTagResponseData.class, "No ready broker available for DestroyTag request");
     }
 
     /**
