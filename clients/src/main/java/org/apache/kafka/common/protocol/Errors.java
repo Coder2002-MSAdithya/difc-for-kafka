@@ -413,7 +413,17 @@ public enum Errors {
     DUPLICATE_VOTER(126, "The voter is already part of the set of voters.", DuplicateVoterException::new),
     VOTER_NOT_FOUND(127, "The voter is not part of the set of voters.", VoterNotFoundException::new),
     INVALID_REGULAR_EXPRESSION(128, "The regular expression is not valid.", InvalidRegularExpression::new),
-    REBOOTSTRAP_REQUIRED(129, "Client metadata is stale, client should rebootstrap to obtain new metadata.", RebootstrapRequiredException::new);
+    REBOOTSTRAP_REQUIRED(129, "Client metadata is stale, client should rebootstrap to obtain new metadata.", RebootstrapRequiredException::new),
+
+    DIFC_TAG_NAME_INVALID(130, "The tag name provided is invalid", ApiException::new),
+    DIFC_TAG_NAME_ALREADY_EXISTS(131, "The tag name already exists", ApiException::new),
+    DIFC_TAG_NAME_NOT_FOUND(132, "The tag name was not found", ApiException::new),
+    DIFC_CLIENT_ALREADY_EXISTS(133, "The client already exists", ApiException::new),
+    DIFC_CLIENT_NOT_FOUND(134, "The client was not found", ApiException::new),
+    DIFC_UNAUTHORIZED_CLIENT(135, "Client NOT allowed to perform this operation", ApiException::new),
+    DIFC_CLIENT_ID_INVALID(136, "The client Id provided is invalid", ApiException::new),
+    DIFC_UNSUPPORTED_CAPABILITY(137, "The capability code provided in the request is NOT supported", ApiException::new);
+
 
     private static final Logger log = LoggerFactory.getLogger(Errors.class);
 
