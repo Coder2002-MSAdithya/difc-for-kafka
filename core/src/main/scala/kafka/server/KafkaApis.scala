@@ -79,15 +79,7 @@ import scala.annotation.nowarn
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.{Map, Seq, Set, mutable}
 import scala.jdk.CollectionConverters._
-
-import org.apache.kafka.server.difc.{
-  TagRegistrar,
-  TagException,
-  NullInputException,
-  DuplicateTagException,
-  OwnerNotFoundException,
-  InvalidTagNameException
-}
+import org.apache.kafka.server.difc.{Capability, CapabilityException, ClientExistsException, ClientNotFoundException, DIFCException, DuplicateTagException, InvalidClientIdException, InvalidTagNameException, NullInputException, TagNotFoundException, TagRegistrar, UnAuthorizedClientException}
 
 
 /**
@@ -121,7 +113,7 @@ class KafkaApis(val requestChannel: RequestChannel,
   val tagRegistrar = new TagRegistrar()
   tagRegistrar.initialize()
 
-  info("TagRegistrar initialized and contents at broker startup:\n" + tagRegistrar.toString())
+  info("TagRegistrar initialized and contents at broker startup:\n" + tagRegistrar.toString)
 
   type FetchResponseStats = Map[TopicPartition, RecordValidationStats]
   this.logIdent = "[KafkaApi-%d] ".format(brokerId)
@@ -257,6 +249,13 @@ class KafkaApis(val requestChannel: RequestChannel,
         case ApiKeys.DELETE_SHARE_GROUP_STATE => handleDeleteShareGroupStateRequest(request)
         case ApiKeys.READ_SHARE_GROUP_STATE_SUMMARY => handleReadShareGroupStateSummaryRequest(request)
         case ApiKeys.CREATE_TAG => handleCreateTagRequest(request)
+        case ApiKeys.DESTROY_TAG => handleDestroyTagRequest(request)
+        case ApiKeys.REGISTER_CLIENT => handleRegisterClientRequest(request)
+        case ApiKeys.ADD_TAG => handleAddTagRequest(request)
+        case ApiKeys.REMOVE_TAG => handleRemoveTagRequest(request)
+        case ApiKeys.ADD_CLIENT_PRIVS => handleAddClientPrivsRequest(request)
+        case ApiKeys.REMOVE_CLIENT_PRIVS => handleAddClientPrivsRequest(request)
+        case ApiKeys.GRANT_OWNER_PRIVILEGES => handleGrantOwnerPrivilegesRequest(request)
         case _ => throw new IllegalStateException(s"No handler for request api key ${request.header.apiKey}")
       }
     } catch {
@@ -276,6 +275,13 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   override def tryCompleteActions(): Unit = {
     replicaManager.tryCompleteActions()
+  }
+
+  def getCapability(num : Byte): Capability =
+  {
+      if(num == 0)  Capability.CAN_ADD
+      else if(num == 1) Capability.CAN_REMOVE
+      throw new CapabilityException("The capability provided is NOT supported or does NOT exist.\n")
   }
 
   /* Handle a request to create/allocate a new tag for Kafka clients */
@@ -307,18 +313,22 @@ class KafkaApis(val requestChannel: RequestChannel,
         errorMessage = e.getMessage
 
       case e: DuplicateTagException =>
-        error = Errors.INVALID_REQUEST
+        error = Errors.DIFC_TAG_NAME_ALREADY_EXISTS
         errorMessage = e.getMessage
 
-      case e: OwnerNotFoundException =>
-        error = Errors.INVALID_REQUEST
+      case e: InvalidClientIdException =>
+        error = Errors.DIFC_CLIENT_ID_INVALID
+        errorMessage = e.getMessage
+
+      case e: ClientNotFoundException =>
+        error = Errors.DIFC_CLIENT_NOT_FOUND
         errorMessage = e.getMessage
 
       case e: InvalidTagNameException =>
-        error = Errors.INVALID_REQUEST
+        error = Errors.DIFC_TAG_NAME_INVALID
         errorMessage = e.getMessage
 
-      case e: TagException =>
+      case e: DIFCException =>
         // any other TagRegistrar-defined error
         error = Errors.UNKNOWN_SERVER_ERROR
         errorMessage = e.getMessage
@@ -335,6 +345,358 @@ class KafkaApis(val requestChannel: RequestChannel,
     requestHelper.sendMaybeThrottle(request, response)
   }
 
+  /* Handle a request to destroy an existing tag.
+ * Only the owner of the tag is authorized to delete it.
+ * This removes the tag from the registry and revokes all capabilities and labels
+ * associated with it across every client.
+ */
+  def handleDestroyTagRequest(request: RequestChannel.Request): Unit =
+  {
+    val destroyReq = request.body[DestroyTagRequest]
+    val tagName = destroyReq.data.tagName()
+    val clientId = request.context.clientId()
+
+    var error: Errors = Errors.NONE
+    var errorMessage: String = null
+
+    try
+    {
+      info("Handling DESTROY_TAG request")
+      tagRegistrar.destroyTag(tagName, clientId)
+      error = Errors.NONE
+      errorMessage = s"Tag '$tagName' destroyed successfully"
+      info(s"DESTROY_TAG: client '$clientId' destroyed tag '$tagName'")
+    }
+    catch
+    {
+      case e: TagNotFoundException =>
+        error = Errors.DIFC_TAG_NAME_NOT_FOUND
+        errorMessage = e.getMessage
+
+      case e: UnAuthorizedClientException =>
+        error = Errors.DIFC_UNAUTHORIZED_CLIENT
+        errorMessage = e.getMessage
+
+      case e: InvalidClientIdException =>
+        error = Errors.DIFC_CLIENT_ID_INVALID
+        errorMessage = e.getMessage
+
+      case e: InvalidTagNameException =>
+        error = Errors.DIFC_TAG_NAME_INVALID
+        errorMessage = e.getMessage
+
+      case e: DIFCException =>
+        error = Errors.UNKNOWN_SERVER_ERROR
+        errorMessage = e.getMessage
+    }
+
+    val responseData = new DestroyTagResponseData()
+      .setErrorCode(error.code)
+      .setErrorMessage(errorMessage)
+
+    info(tagRegistrar.toString)
+
+    val response = new DestroyTagResponse(responseData)
+    requestHelper.sendMaybeThrottle(request, response)
+  }
+
+  /* Handle a request to register a new DIFC client.
+ * This creates a new security principal in the DIFC system with
+ * empty labels, capabilities, and ownership sets.
+ */
+  def handleRegisterClientRequest(request: RequestChannel.Request): Unit =
+  {
+    val registerReq = request.body[RegisterClientRequest]
+    val clientId = registerReq.data.clientId()
+
+    var error: Errors = Errors.NONE
+    var errorMessage: String = null
+
+    try
+    {
+      info("Handling REGISTER_CLIENT request")
+      tagRegistrar.registerClient(clientId)
+      error = Errors.NONE
+      errorMessage = s"Client '$clientId' registered successfully"
+      info(s"REGISTER_CLIENT: client '$clientId' registered")
+    }
+    catch
+    {
+      case e: ClientExistsException =>
+        error = Errors.DIFC_CLIENT_ALREADY_EXISTS
+        errorMessage = e.getMessage
+
+      case e: InvalidClientIdException =>
+        error = Errors.DIFC_CLIENT_ID_INVALID
+        errorMessage = e.getMessage
+
+      case e: DIFCException =>
+        error = Errors.UNKNOWN_SERVER_ERROR
+        errorMessage = e.getMessage
+    }
+
+    val responseData = new RegisterClientResponseData()
+      .setErrorCode(error.code)
+      .setErrorMessage(errorMessage)
+
+    info(tagRegistrar.toString)
+
+    val response = new RegisterClientResponse(responseData)
+    requestHelper.sendMaybeThrottle(request, response)
+  }
+
+  /* Handle a request for a client to add a tag to its current security label.
+ * The client must possess CAN_ADD capability or ownership over the tag.
+ */
+  def handleAddTagRequest(request: RequestChannel.Request): Unit =
+  {
+    val addReq = request.body[AddTagRequest]
+    val tagName = addReq.data.tagName()
+    val clientId = request.context.clientId()
+
+    var error: Errors = Errors.NONE
+    var errorMessage: String = null
+
+    try
+    {
+      info("Handling ADD_TAG request")
+      tagRegistrar.addTag(tagName, clientId)
+      error = Errors.NONE
+      errorMessage = s"Tag '$tagName' added to client '$clientId'"
+      info(s"ADD_TAG: client '$clientId' added tag '$tagName'")
+    }
+    catch
+    {
+      case e: UnAuthorizedClientException =>
+        error = Errors.DIFC_UNAUTHORIZED_CLIENT
+        errorMessage = e.getMessage
+
+      case e: InvalidClientIdException =>
+        error = Errors.DIFC_CLIENT_ID_INVALID
+        errorMessage = e.getMessage
+
+      case e: InvalidTagNameException =>
+        error = Errors.DIFC_TAG_NAME_INVALID
+        errorMessage = e.getMessage
+
+      case e: DIFCException =>
+        error = Errors.UNKNOWN_SERVER_ERROR
+        errorMessage = e.getMessage
+    }
+
+    val responseData = new AddTagResponseData()
+      .setErrorCode(error.code)
+      .setErrorMessage(errorMessage)
+
+    val response = new AddTagResponse(responseData)
+    requestHelper.sendMaybeThrottle(request, response)
+  }
+
+  /* Handle a request for a client to remove a tag from its current security label.
+ * The client must possess CAN_REMOVE capability or ownership over the tag.
+ */
+  def handleRemoveTagRequest(request: RequestChannel.Request): Unit =
+  {
+    val removeReq = request.body[RemoveTagRequest]
+    val tagName = removeReq.data.tagName()
+    val clientId = request.context.clientId()
+
+    var error: Errors = Errors.NONE
+    var errorMessage: String = null
+
+    try
+    {
+      info("Handling REMOVE_TAG request")
+      tagRegistrar.removeTag(tagName, clientId)
+      error = Errors.NONE
+      errorMessage = s"Tag '$tagName' removed from client '$clientId'"
+      info(s"REMOVE_TAG: client '$clientId' removed tag '$tagName'")
+    }
+    catch
+    {
+      case e: UnAuthorizedClientException =>
+        error = Errors.DIFC_UNAUTHORIZED_CLIENT
+        errorMessage = e.getMessage
+
+      case e: InvalidClientIdException =>
+        error = Errors.DIFC_CLIENT_ID_INVALID
+        errorMessage = e.getMessage
+
+      case e: InvalidTagNameException =>
+        error = Errors.DIFC_TAG_NAME_INVALID
+        errorMessage = e.getMessage
+
+      case e: DIFCException =>
+        error = Errors.UNKNOWN_SERVER_ERROR
+        errorMessage = e.getMessage
+    }
+
+    val responseData = new RemoveTagResponseData()
+      .setErrorCode(error.code)
+      .setErrorMessage(errorMessage)
+
+    val response = new RemoveTagResponse(responseData)
+    requestHelper.sendMaybeThrottle(request, response)
+  }
+
+  /* Handle a request to grant tag capabilities (CAN_ADD / CAN_REMOVE) to another client.
+ * Only the owner of the tag is authorized to bestow privileges.
+ */
+  def handleAddClientPrivsRequest(request: RequestChannel.Request): Unit =
+  {
+    val privReq = request.body[AddClientPrivsRequest]
+    val targetClient = privReq.data.clientId()
+    val tagName = privReq.data.tagName()
+    val capId = privReq.data.capability()
+    val fromClientId = request.context.clientId()
+
+    var error: Errors = Errors.NONE
+    var errorMessage: String = null
+
+    try
+    {
+      info("Handling ADD_CLIENT_PRIVS request")
+      val cap = getCapability(capId)
+      tagRegistrar.addClientPrivsOnRequest(fromClientId, targetClient, tagName, cap)
+      error = Errors.NONE
+      errorMessage = s"Granted $cap on '$tagName' to '$targetClient'"
+      info(s"ADD_CLIENT_PRIVS: '$fromClientId' granted $cap on '$tagName' to '$targetClient'")
+    }
+    catch
+    {
+      case e: TagNotFoundException =>
+        error = Errors.DIFC_TAG_NAME_NOT_FOUND
+        errorMessage = e.getMessage
+
+      case e: UnAuthorizedClientException =>
+        error = Errors.DIFC_UNAUTHORIZED_CLIENT
+        errorMessage = e.getMessage
+
+      case e: InvalidClientIdException =>
+        error = Errors.DIFC_CLIENT_ID_INVALID
+        errorMessage = e.getMessage
+
+      case e: InvalidTagNameException =>
+        error = Errors.DIFC_TAG_NAME_INVALID
+        errorMessage = e.getMessage
+
+      case e: CapabilityException =>
+        error = Errors.DIFC_UNSUPPORTED_CAPABILITY
+        errorMessage = e.getMessage
+
+      case e: DIFCException =>
+        error = Errors.UNKNOWN_SERVER_ERROR
+        errorMessage = e.getMessage
+    }
+
+    val responseData = new AddClientPrivsResponseData()
+      .setErrorCode(error.code)
+      .setErrorMessage(errorMessage)
+
+    val response = new AddClientPrivsResponse(responseData)
+    requestHelper.sendMaybeThrottle(request, response)
+  }
+
+  def handleRemoveClientPrivsRequest(request: RequestChannel.Request): Unit =
+  {
+    val privReq = request.body[AddClientPrivsRequest]
+    val targetClient = privReq.data.clientId()
+    val tagName = privReq.data.tagName()
+    val capId = privReq.data.capability()
+    val fromClientId = request.context.clientId()
+
+    var error: Errors = Errors.NONE
+    var errorMessage: String = null
+
+    try
+    {
+      info("Handling ADD_CLIENT_PRIVS request")
+      val cap = getCapability(capId)
+      tagRegistrar.removeClientPrivsOnRequest(fromClientId, targetClient, tagName, cap)
+      error = Errors.NONE
+      errorMessage = s"Granted $cap on '$tagName' to '$targetClient'"
+      info(s"ADD_CLIENT_PRIVS: '$fromClientId' granted $cap on '$tagName' to '$targetClient'")
+    }
+    catch
+    {
+      case e: TagNotFoundException =>
+        error = Errors.DIFC_TAG_NAME_NOT_FOUND
+        errorMessage = e.getMessage
+
+      case e: UnAuthorizedClientException =>
+        error = Errors.DIFC_UNAUTHORIZED_CLIENT
+        errorMessage = e.getMessage
+
+      case e: InvalidClientIdException =>
+        error = Errors.DIFC_CLIENT_ID_INVALID
+        errorMessage = e.getMessage
+
+      case e: InvalidTagNameException =>
+        error = Errors.DIFC_TAG_NAME_INVALID
+        errorMessage = e.getMessage
+
+      case e: CapabilityException =>
+        error = Errors.DIFC_UNSUPPORTED_CAPABILITY
+        errorMessage = e.getMessage
+
+      case e: DIFCException =>
+        error = Errors.UNKNOWN_SERVER_ERROR
+        errorMessage = e.getMessage
+    }
+
+    val responseData = new AddClientPrivsResponseData()
+      .setErrorCode(error.code)
+      .setErrorMessage(errorMessage)
+
+    val response = new AddClientPrivsResponse(responseData)
+    requestHelper.sendMaybeThrottle(request, response)
+  }
+
+  /* Handle a request to transfer ownership of a tag from the current owner
+ * to another client. Only the existing owner of the tag is authorized
+ * to perform this operation.
+ */
+  def handleGrantOwnerPrivilegesRequest(request: RequestChannel.Request): Unit = {
+    val grantReq = request.body[GrantOwnerPrivilegesRequest]
+    val targetClientId = grantReq.data.clientId()
+    val tagName = grantReq.data.tagName()
+    val fromClientId = request.context.clientId()
+
+    var error: Errors = Errors.NONE
+    var errorMessage: String = null
+
+    try {
+      info("Handling GRANT_OWNER_PRIVILEGES request")
+
+      // Delegate to TagRegistrar – this enforces ownership checks
+      tagRegistrar.grantOwnerPrivileges(fromClientId, targetClientId, tagName)
+
+      error = Errors.NONE
+      errorMessage = s"Ownership of tag '$tagName' transferred to '$targetClientId'"
+      info(s"GRANT_OWNER_PRIVILEGES: '$fromClientId' transferred '$tagName' to '$targetClientId'")
+    }
+    catch {
+      case e: TagNotFoundException =>
+        error = Errors.DIFC_TAG_NAME_NOT_FOUND
+        errorMessage = e.getMessage
+
+      case e: UnAuthorizedClientException =>
+        error = Errors.DIFC_UNAUTHORIZED_CLIENT
+        errorMessage = e.getMessage
+
+      case e: InvalidClientIdException =>
+        error = Errors.DIFC_CLIENT_ID_INVALID
+        errorMessage = e.getMessage
+
+      case e: InvalidTagNameException =>
+        error = Errors.DIFC_TAG_NAME_INVALID
+        errorMessage = e.getMessage
+
+      case e: DIFCException =>
+        error = Errors.UNKNOWN_SERVER_ERROR
+        errorMessage = e.getMessage
+    }
+  }
   /**
    * Handle an offset commit request
    */
