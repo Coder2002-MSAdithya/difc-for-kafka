@@ -809,7 +809,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         producerMetrics.recordAbortTxn(time.nanoseconds() - abortStart);
     }
 
-    private ProducerRecord<K, V> withTagsHeader(ProducerRecord<K, V> record, Set<String> tags) {
+    protected ProducerRecord<K, V> withTagsHeader(ProducerRecord<K, V> record, Set<String> tags) {
         if (tags == null || tags.isEmpty())
             return record;
 
