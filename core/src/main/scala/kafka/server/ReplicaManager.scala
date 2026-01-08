@@ -63,6 +63,7 @@ import org.apache.kafka.storage.log.metrics.BrokerTopicStats
 
 import java.io.File
 import java.lang.{Long => JLong}
+import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Paths}
 import java.util
 import java.util.concurrent.atomic.AtomicBoolean
@@ -1357,6 +1358,7 @@ class ReplicaManager(val config: KafkaConfig,
           val partition = getPartitionOrException(topicPartition)
           val info = partition.appendRecordsToLeader(records, origin, requiredAcks, requestLocal,
             verificationGuards.getOrElse(topicPartition, VerificationGuard.SENTINEL))
+          logTags(records)
           val numAppendedMessages = info.numMessages
 
           // update stats for successfully appended bytes and messages as bytesInRate and messageInRate
@@ -2888,4 +2890,45 @@ class ReplicaManager(val config: KafkaConfig,
       () => ()
     )
   }
+
+  private def extractTagsAsSet(record: org.apache.kafka.common.record.Record): Set[String] = {
+    val headers = record.headers()
+    if (headers == null) return Set.empty
+
+    val it = headers.iterator   // <-- this is java.util.Iterator[Header]
+
+    while (it.hasNext) {
+      val h = it.next()           // <-- h: Header
+
+      if ("tags" == h.key()) {
+        val raw =
+          if (h.value() == null) ""
+          else new String(h.value(), StandardCharsets.UTF_8)
+
+        return raw
+          .split(":")
+          .map(_.trim)
+          .filter(_.nonEmpty)
+          .toSet
+      }
+    }
+
+    Set.empty
+  }
+
+  private def logTags(records: org.apache.kafka.common.record.MemoryRecords): Unit = {
+    val it = records.records().iterator()   // java.util.Iterator[Record]
+
+    while (it.hasNext) {
+      val r = it.next()
+      val tags = extractTagsAsSet(r)
+
+      if (tags.nonEmpty) {
+        info(s"[DIFC] Record tags = $tags")
+      }
+    }
+  }
 }
+
+
+
