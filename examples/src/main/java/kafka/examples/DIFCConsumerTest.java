@@ -1,5 +1,6 @@
 package kafka.examples;
 
+import org.apache.kafka.clients.Capability;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
@@ -99,7 +100,7 @@ public class DIFCConsumerTest {
                         consumer.sendAddClientPrivsRequest(
                                 "supportSvc",
                                 "TEMP_TEST_TAG",
-                                (byte) 1   // CAN_ADD
+                                Capability.CAN_ADD   // CAN_ADD
                         );
                 System.out.println("AddClientPrivs -> " + r.errorMessage());
             } catch (Exception e) {

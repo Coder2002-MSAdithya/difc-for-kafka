@@ -1,5 +1,6 @@
 package kafka.examples;
 
+import org.apache.kafka.clients.Capability;
 import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.clients.producer.ProducerRecord;
@@ -215,7 +216,7 @@ public class DIFCFullFoodDeliveryTest
                     p.sendAddClientPrivsRequest(
                             targetClient,
                             tag,
-                            (byte) 1   // CAN_ADD
+                            Capability.CAN_ADD
                     );
             System.out.println("Granted CAN_ADD on " + tag +
                     " to " + targetClient + " -> " + r.errorMessage());
