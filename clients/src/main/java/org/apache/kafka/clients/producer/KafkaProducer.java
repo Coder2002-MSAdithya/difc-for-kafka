@@ -1496,10 +1496,12 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
 
     public byte byteFrom(Capability capability)
     {
-        return switch (capability) {
-            case CAN_ADD -> 0;
-            case CAN_REMOVE -> 1;
+        switch(capability) {
+            case CAN_ADD: return 0;
+            case CAN_REMOVE: return 1;
         };
+
+        return -1;
     }
 
     public CreateTagResponseData sendCreateTagRequest(String tagName)

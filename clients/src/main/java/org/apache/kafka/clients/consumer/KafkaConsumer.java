@@ -1807,12 +1807,12 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
         delegate.close(timeout);
     }
 
-    private byte byteFrom(Capability capability)
-    {
-        return switch (capability) {
-            case CAN_ADD -> 0;
-            case CAN_REMOVE -> 1;
-        };
+    private byte byteFrom(Capability capability) {
+        switch(capability) {
+            case CAN_ADD: return (byte) 0;
+            case CAN_REMOVE: return (byte) 1;
+        }
+        return -1;
     }
 
     public CreateTagResponseData sendCreateTagRequest(String tagName) {return delegate.sendCreateTagRequest(tagName);}
