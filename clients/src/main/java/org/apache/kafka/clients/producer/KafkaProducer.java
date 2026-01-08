@@ -82,13 +82,7 @@ import org.slf4j.Logger;
 
 import java.net.InetSocketAddress;
 import java.time.Duration;
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.Properties;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -815,6 +809,28 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         producerMetrics.recordAbortTxn(time.nanoseconds() - abortStart);
     }
 
+    private ProducerRecord<K, V> withTagsHeader(ProducerRecord<K, V> record, Set<String> tags) {
+        if (tags == null || tags.isEmpty())
+            return record;
+
+        // Join tags with :
+        String joined = String.join(":", tags);
+
+        // Copy headers and add our own
+        Headers headers = new RecordHeaders(record.headers());
+        headers.add("tags", joined.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+        // Create a new ProducerRecord with same fields but new headers
+        return new ProducerRecord<>(
+                record.topic(),
+                record.partition(),
+                record.timestamp(),
+                record.key(),
+                record.value(),
+                headers
+        );
+    }
+
     /**
      * Asynchronously send a record to a topic. Equivalent to <code>send(record, null)</code>.
      * See {@link #send(ProducerRecord, Callback)} for details.
@@ -940,6 +956,18 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         // intercept the record, which can be potentially modified; this method does not throw exceptions
         ProducerRecord<K, V> interceptedRecord = this.interceptors.onSend(record);
         return doSend(interceptedRecord, callback);
+    }
+
+    public Future<RecordMetadata> sendWithTags(ProducerRecord<K, V> record,
+                                       Set<String> tags,
+                                       Callback callback) {
+        ProducerRecord<K, V> tagged = withTagsHeader(record, tags);
+        return send(tagged, callback);
+    }
+
+    public Future<RecordMetadata> sendWithTags(ProducerRecord<K, V> record, Set<String> tags) {
+        ProducerRecord<K, V> tagged = withTagsHeader(record, tags);
+        return send(tagged, null);
     }
 
     // Verify that this producer instance has not been closed. This method throws IllegalStateException if the producer
