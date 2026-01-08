@@ -30,8 +30,12 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.errors.InterruptException;
 import org.apache.kafka.common.errors.InvalidRegularExpression;
+import org.apache.kafka.common.message.*;
 import org.apache.kafka.common.metrics.KafkaMetric;
 import org.apache.kafka.common.metrics.Metrics;
+import org.apache.kafka.common.requests.AddTagResponse;
+import org.apache.kafka.common.requests.RemoveClientPrivsResponse;
+import org.apache.kafka.common.requests.RemoveTagResponse;
 import org.apache.kafka.common.serialization.Deserializer;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.Time;
@@ -1801,6 +1805,23 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
     public void close(Duration timeout) {
         delegate.close(timeout);
     }
+
+
+    public CreateTagResponseData sendCreateTagRequest(String tagName) {return delegate.sendCreateTagRequest(tagName);}
+
+    public DestroyTagResponseData sendDestroyTagRequest(String tagName) {return delegate.sendDestroyTagRequest(tagName);}
+
+    public RegisterClientResponseData sendRegisterClientRequest(String tagName) {return delegate.sendRegisterClientRequest(tagName);}
+
+    public AddTagResponseData sendAddTagRequest(String tagName) {return delegate.sendAddTagRequest(tagName);}
+
+    public RemoveTagResponseData sendRemoveTagRequest(String tagName) {return delegate.sendRemoveTagRequest(tagName);}
+
+    public AddClientPrivsResponseData sendAddClientPrivsRequest(String targetClientId, String tagName, byte capability) {return delegate.sendAddClientPrivsRequest(targetClientId, tagName, capability);}
+
+    public RemoveClientPrivsResponseData sendRemoveClientPrivsRequest(String targetCLientId, String tagName, byte capability) {return delegate.sendRemoveClientPrivsRequest(targetCLientId, tagName, capability);}
+
+    public GrantOwnerPrivilegesResponseData sendGrantOwnerPrivilegesRequest(String targetClientId, String tagName) {return delegate.sendGrantOwnerPrivilegesRequest(targetClientId, tagName);}
 
     /**
      * Wakeup the consumer. This method is thread-safe and is useful in particular to abort a long poll.

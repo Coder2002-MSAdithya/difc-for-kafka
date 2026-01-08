@@ -18,6 +18,7 @@ package org.apache.kafka.clients.consumer.internals;
 
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.internals.metrics.KafkaConsumerMetrics;
+import org.apache.kafka.common.message.*;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.utils.Timer;
 
@@ -40,4 +41,20 @@ public interface ConsumerDelegate<K, V> extends Consumer<K, V> {
     KafkaConsumerMetrics kafkaConsumerMetrics();
 
     boolean updateAssignmentMetadataIfNeeded(final Timer timer);
+
+    CreateTagResponseData sendCreateTagRequest(String tagName);
+
+    DestroyTagResponseData sendDestroyTagRequest(String tagName);
+
+    RegisterClientResponseData sendRegisterClientRequest(String clientId);
+
+    AddTagResponseData sendAddTagRequest(String tagName);
+
+    RemoveTagResponseData sendRemoveTagRequest(String tagName);
+
+    AddClientPrivsResponseData sendAddClientPrivsRequest(String targetClientId, String tagName, byte capability);
+
+    RemoveClientPrivsResponseData sendRemoveClientPrivsRequest(String targetClientId, String tagName, byte capability);
+
+    GrantOwnerPrivilegesResponseData sendGrantOwnerPrivilegesRequest(String targetClientId, String tagName);
 }

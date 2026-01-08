@@ -88,6 +88,7 @@ import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.errors.TopicAuthorizationException;
 import org.apache.kafka.common.errors.WakeupException;
 import org.apache.kafka.common.internals.ClusterResourceListeners;
+import org.apache.kafka.common.message.*;
 import org.apache.kafka.common.metrics.KafkaMetric;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.metrics.MetricsReporter;
@@ -1819,6 +1820,46 @@ public class AsyncKafkaConsumer<K, V> implements ConsumerDelegate<K, V> {
         processBackgroundEvents();
 
         return updateFetchPositions(timer);
+    }
+
+    @Override
+    public CreateTagResponseData sendCreateTagRequest(String tagName) {
+        return null;
+    }
+
+    @Override
+    public DestroyTagResponseData sendDestroyTagRequest(String tagName) {
+        return null;
+    }
+
+    @Override
+    public RegisterClientResponseData sendRegisterClientRequest(String clientId) {
+        return null;
+    }
+
+    @Override
+    public AddTagResponseData sendAddTagRequest(String tagName) {
+        return null;
+    }
+
+    @Override
+    public RemoveTagResponseData sendRemoveTagRequest(String tagName) {
+        return null;
+    }
+
+    @Override
+    public AddClientPrivsResponseData sendAddClientPrivsRequest(String targetClientId, String tagName, byte capability) {
+        return null;
+    }
+
+    @Override
+    public RemoveClientPrivsResponseData sendRemoveClientPrivsRequest(String targetClientId, String tagName, byte capability) {
+        return null;
+    }
+
+    @Override
+    public GrantOwnerPrivilegesResponseData sendGrantOwnerPrivilegesRequest(String targetClientId, String tagName) {
+        return null;
     }
 
     @Override

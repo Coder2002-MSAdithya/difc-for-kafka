@@ -16,12 +16,7 @@
  */
 package org.apache.kafka.clients.consumer.internals;
 
-import org.apache.kafka.clients.ApiVersions;
-import org.apache.kafka.clients.ClientUtils;
-import org.apache.kafka.clients.CommonClientConfigs;
-import org.apache.kafka.clients.GroupRebalanceConfig;
-import org.apache.kafka.clients.KafkaClient;
-import org.apache.kafka.clients.Metadata;
+import org.apache.kafka.clients.*;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerGroupMetadata;
 import org.apache.kafka.clients.consumer.ConsumerInterceptor;
@@ -36,28 +31,20 @@ import org.apache.kafka.clients.consumer.OffsetAndTimestamp;
 import org.apache.kafka.clients.consumer.OffsetCommitCallback;
 import org.apache.kafka.clients.consumer.SubscriptionPattern;
 import org.apache.kafka.clients.consumer.internals.metrics.KafkaConsumerMetrics;
-import org.apache.kafka.common.Cluster;
-import org.apache.kafka.common.IsolationLevel;
-import org.apache.kafka.common.KafkaException;
-import org.apache.kafka.common.Metric;
-import org.apache.kafka.common.MetricName;
-import org.apache.kafka.common.PartitionInfo;
-import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.Uuid;
+import org.apache.kafka.common.*;
 import org.apache.kafka.common.errors.InterruptException;
 import org.apache.kafka.common.errors.InvalidGroupIdException;
 import org.apache.kafka.common.errors.TimeoutException;
 import org.apache.kafka.common.internals.ClusterResourceListeners;
+import org.apache.kafka.common.message.*;
 import org.apache.kafka.common.metrics.KafkaMetric;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.metrics.MetricsReporter;
+import org.apache.kafka.common.requests.*;
 import org.apache.kafka.common.serialization.Deserializer;
 import org.apache.kafka.common.telemetry.internals.ClientTelemetryReporter;
 import org.apache.kafka.common.telemetry.internals.ClientTelemetryUtils;
-import org.apache.kafka.common.utils.AppInfoParser;
-import org.apache.kafka.common.utils.LogContext;
-import org.apache.kafka.common.utils.Time;
-import org.apache.kafka.common.utils.Timer;
+import org.apache.kafka.common.utils.*;
 
 import org.slf4j.Logger;
 import org.slf4j.event.Level;
@@ -75,6 +62,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -1287,4 +1275,199 @@ public class ClassicKafkaConsumer<K, V> implements ConsumerDelegate<K, V> {
     public boolean updateAssignmentMetadataIfNeeded(final Timer timer) {
         return updateAssignmentMetadataIfNeeded(timer, true);
     }
+
+    private <T> T sendCustomRequestAndWait(
+            AbstractRequest.Builder<?> builder,
+            Class<T> responseClass,
+            Timer timer,
+            String errorMessage)
+    {
+        long attempts = 0L;
+
+        do {
+            RequestFuture<ClientResponse> future = sendCustomRequest(builder);
+
+            // THIS is the magic line: drives network + waits
+            client.poll(future, timer);
+
+            if (future.failed() && !future.isRetriable())
+                throw future.exception();
+
+            if (future.succeeded()) {
+                try {
+                    Object data = future.value().responseBody().data();
+                    return responseClass.cast(data);
+                } catch (Throwable t) {
+                    throw new KafkaException(errorMessage, t);
+                }
+            }
+
+            ExponentialBackoff retryBackoff = new ExponentialBackoff(retryBackoffMs,
+                    CommonClientConfigs.RETRY_BACKOFF_EXP_BASE,
+                    retryBackoffMaxMs,
+                    CommonClientConfigs.RETRY_BACKOFF_JITTER);
+
+            timer.sleep(retryBackoff.backoff(attempts++));
+
+        } while (timer.notExpired());
+
+        throw new TimeoutException(errorMessage);
+    }
+
+    private RequestFuture<ClientResponse> sendCustomRequest(
+            AbstractRequest.Builder<?> builder)
+    {
+        Node node = client.leastLoadedNode();
+        if (node == null)
+            return RequestFuture.noBrokersAvailable();
+        else
+            return client.send(node, builder);   // <-- ConsumerNetworkClient.send
+    }
+
+    public CreateTagResponseData sendCreateTagRequest(String tagName) {
+        CreateTagRequestData data = new CreateTagRequestData().setTagName(tagName);
+        CreateTagRequest.Builder builder = new CreateTagRequest.Builder(data);
+        Timer timer = time.timer(requestTimeoutMs);
+
+        return sendCustomRequestAndWait(
+                builder,
+                CreateTagResponseData.class,
+                timer,
+                "CreateTag request failed"
+        );
+    }
+
+    public DestroyTagResponseData sendDestroyTagRequest(String tagName) {
+        DestroyTagRequestData data =
+                new DestroyTagRequestData().setTagName(tagName);
+
+        DestroyTagRequest.Builder builder =
+                new DestroyTagRequest.Builder(data);
+
+        Timer timer = time.timer(requestTimeoutMs);
+
+        return sendCustomRequestAndWait(
+                builder,
+                DestroyTagResponseData.class,
+                timer,
+                "DestroyTag request failed"
+        );
+    }
+
+    public RegisterClientResponseData sendRegisterClientRequest(String clientId) {
+        RegisterClientRequestData data =
+                new RegisterClientRequestData().setClientId(clientId);
+
+        RegisterClientRequest.Builder builder =
+                new RegisterClientRequest.Builder(data);
+
+        Timer timer = time.timer(requestTimeoutMs);
+
+        return sendCustomRequestAndWait(
+                builder,
+                RegisterClientResponseData.class,
+                timer,
+                "RegisterClient request failed"
+        );
+    }
+
+    public AddTagResponseData sendAddTagRequest(String tagName) {
+        AddTagRequestData data =
+                new AddTagRequestData().setTagName(tagName);
+
+        AddTagRequest.Builder builder =
+                new AddTagRequest.Builder(data);
+
+        Timer timer = time.timer(requestTimeoutMs);
+
+        return sendCustomRequestAndWait(
+                builder,
+                AddTagResponseData.class,
+                timer,
+                "AddTag request failed"
+        );
+    }
+
+    public RemoveTagResponseData sendRemoveTagRequest(String tagName) {
+        RemoveTagRequestData data =
+                new RemoveTagRequestData().setTagName(tagName);
+
+        RemoveTagRequest.Builder builder =
+                new RemoveTagRequest.Builder(data);
+
+        Timer timer = time.timer(requestTimeoutMs);
+
+        return sendCustomRequestAndWait(
+                builder,
+                RemoveTagResponseData.class,
+                timer,
+                "RemoveTag request failed"
+        );
+    }
+
+    public AddClientPrivsResponseData sendAddClientPrivsRequest(
+            String targetClientId, String tagName, byte capability)
+    {
+        AddClientPrivsRequestData data =
+                new AddClientPrivsRequestData()
+                        .setClientId(targetClientId)
+                        .setTagName(tagName)
+                        .setCapability(capability);
+
+        AddClientPrivsRequest.Builder builder =
+                new AddClientPrivsRequest.Builder(data);
+
+        Timer timer = time.timer(requestTimeoutMs);
+
+        return sendCustomRequestAndWait(
+                builder,
+                AddClientPrivsResponseData.class,
+                timer,
+                "AddClientPrivs request failed"
+        );
+    }
+
+    public RemoveClientPrivsResponseData sendRemoveClientPrivsRequest(
+            String targetClientId, String tagName, byte capability)
+    {
+        RemoveClientPrivsRequestData data =
+                new RemoveClientPrivsRequestData()
+                        .setClientId(targetClientId)
+                        .setTagName(tagName)
+                        .setCapability(capability);
+
+        RemoveClientPrivsRequest.Builder builder =
+                new RemoveClientPrivsRequest.Builder(data);
+
+        Timer timer = time.timer(requestTimeoutMs);
+
+        return sendCustomRequestAndWait(
+                builder,
+                RemoveClientPrivsResponseData.class,
+                timer,
+                "RemoveClientPrivs request failed"
+        );
+    }
+
+    public GrantOwnerPrivilegesResponseData sendGrantOwnerPrivilegesRequest(
+            String targetClientId, String tagName)
+    {
+        GrantOwnerPrivilegesRequestData data =
+                new GrantOwnerPrivilegesRequestData()
+                        .setClientId(targetClientId)
+                        .setTagName(tagName);
+
+        GrantOwnerPrivilegesRequest.Builder builder =
+                new GrantOwnerPrivilegesRequest.Builder(data);
+
+        Timer timer = time.timer(requestTimeoutMs);
+
+        return sendCustomRequestAndWait(
+                builder,
+                GrantOwnerPrivilegesResponseData.class,
+                timer,
+                "GrantOwnerPrivileges request failed"
+        );
+    }
+
 }
