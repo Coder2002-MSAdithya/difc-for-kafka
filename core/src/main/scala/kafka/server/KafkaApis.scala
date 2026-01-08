@@ -279,8 +279,8 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   def getCapability(num : Byte): Capability =
   {
-      if(num == 0)  Capability.CAN_ADD
-      else if(num == 1) Capability.CAN_REMOVE
+      if(num == 0) return Capability.CAN_ADD
+      else if(num == 1) return Capability.CAN_REMOVE
       throw new CapabilityException("The capability provided is NOT supported or does NOT exist.\n")
   }
 
