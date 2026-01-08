@@ -610,12 +610,12 @@ class KafkaApis(val requestChannel: RequestChannel,
 
     try
     {
-      info("Handling ADD_CLIENT_PRIVS request")
+      info("Handling REMOVE_CLIENT_PRIVS request")
       val cap = getCapability(capId)
       tagRegistrar.removeClientPrivsOnRequest(fromClientId, targetClient, tagName, cap)
       error = Errors.NONE
       errorMessage = s"Granted $cap on '$tagName' to '$targetClient'"
-      info(s"ADD_CLIENT_PRIVS: '$fromClientId' granted $cap on '$tagName' to '$targetClient'")
+      info(s"REMOVE_CLIENT_PRIVS: '$fromClientId' granted $cap on '$tagName' to '$targetClient'")
     }
     catch
     {
@@ -696,6 +696,13 @@ class KafkaApis(val requestChannel: RequestChannel,
         error = Errors.UNKNOWN_SERVER_ERROR
         errorMessage = e.getMessage
     }
+
+    val responseData = new GrantOwnerPrivilegesResponseData()
+      .setErrorCode(error.code)
+      .setErrorMessage(errorMessage)
+
+    val response = new GrantOwnerPrivilegesResponse(responseData)
+    requestHelper.sendMaybeThrottle(request, response)
   }
   /**
    * Handle an offset commit request
