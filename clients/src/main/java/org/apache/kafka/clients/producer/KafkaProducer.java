@@ -16,10 +16,7 @@
  */
 package org.apache.kafka.clients.producer;
 
-import org.apache.kafka.clients.ApiVersions;
-import org.apache.kafka.clients.ClientUtils;
-import org.apache.kafka.clients.CommonClientConfigs;
-import org.apache.kafka.clients.KafkaClient;
+import org.apache.kafka.clients.*;
 import org.apache.kafka.clients.consumer.ConsumerGroupMetadata;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
@@ -1497,6 +1494,14 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         }
     }
 
+    public byte byteFrom(Capability capability)
+    {
+        return switch (capability) {
+            case CAN_ADD -> 0;
+            case CAN_REMOVE -> 1;
+        };
+    }
+
     public CreateTagResponseData sendCreateTagRequest(String tagName)
     {
         throwIfProducerClosed();
@@ -1527,20 +1532,20 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         return await(sender.sendRemoveTagRequest(tagName), "RemoveTag failed");
     }
 
-    public AddClientPrivsResponseData sendAddClientPrivsRequest(String targetClientId, String tagName, byte capability)
+    public AddClientPrivsResponseData sendAddClientPrivsRequest(String targetClientId, String tagName, Capability capability)
     {
         throwIfProducerClosed();
         return await(
-                sender.sendAddClientPrivsRequest(targetClientId, tagName, capability),
+                sender.sendAddClientPrivsRequest(targetClientId, tagName, byteFrom(capability)),
                 "AddClientPrivs failed"
         );
     }
 
-    public RemoveClientPrivsResponseData sendRemoveClientPrivsRequest(String targetClientId, String tagName, byte capability)
+    public RemoveClientPrivsResponseData sendRemoveClientPrivsRequest(String targetClientId, String tagName, Capability capability)
     {
         throwIfProducerClosed();
         return await(
-                sender.sendRemoveClientPrivsRequest(targetClientId, tagName, capability),
+                sender.sendRemoveClientPrivsRequest(targetClientId, tagName, byteFrom(capability)),
                 "RemoveClientPrivs failed"
         );
     }

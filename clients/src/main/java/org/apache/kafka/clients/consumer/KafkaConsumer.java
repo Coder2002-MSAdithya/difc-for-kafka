@@ -16,6 +16,7 @@
  */
 package org.apache.kafka.clients.consumer;
 
+import org.apache.kafka.clients.Capability;
 import org.apache.kafka.clients.KafkaClient;
 import org.apache.kafka.clients.consumer.internals.ConsumerDelegate;
 import org.apache.kafka.clients.consumer.internals.ConsumerDelegateCreator;
@@ -1806,6 +1807,13 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
         delegate.close(timeout);
     }
 
+    private byte byteFrom(Capability capability)
+    {
+        return switch (capability) {
+            case CAN_ADD -> 0;
+            case CAN_REMOVE -> 1;
+        };
+    }
 
     public CreateTagResponseData sendCreateTagRequest(String tagName) {return delegate.sendCreateTagRequest(tagName);}
 
@@ -1817,9 +1825,9 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
 
     public RemoveTagResponseData sendRemoveTagRequest(String tagName) {return delegate.sendRemoveTagRequest(tagName);}
 
-    public AddClientPrivsResponseData sendAddClientPrivsRequest(String targetClientId, String tagName, byte capability) {return delegate.sendAddClientPrivsRequest(targetClientId, tagName, capability);}
+    public AddClientPrivsResponseData sendAddClientPrivsRequest(String targetClientId, String tagName, Capability capability) {return delegate.sendAddClientPrivsRequest(targetClientId, tagName, byteFrom(capability));}
 
-    public RemoveClientPrivsResponseData sendRemoveClientPrivsRequest(String targetCLientId, String tagName, byte capability) {return delegate.sendRemoveClientPrivsRequest(targetCLientId, tagName, capability);}
+    public RemoveClientPrivsResponseData sendRemoveClientPrivsRequest(String targetCLientId, String tagName, Capability capability) {return delegate.sendRemoveClientPrivsRequest(targetCLientId, tagName, byteFrom(capability));}
 
     public GrantOwnerPrivilegesResponseData sendGrantOwnerPrivilegesRequest(String targetClientId, String tagName) {return delegate.sendGrantOwnerPrivilegesRequest(targetClientId, tagName);}
 
