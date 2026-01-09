@@ -226,7 +226,7 @@ public class TagRegistrar
 
      public Set<String> getTagsForClient(String clientId)
      {
-         return Collections.unmodifiableSet(clientsById.get(clientId).getTags());
+         return Collections.unmodifiableSet(getOrCreateClient(clientId).getTags());
      }
 
     /**
