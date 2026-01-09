@@ -1,5 +1,6 @@
 package org.apache.kafka.server.difc;
 
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -221,6 +222,11 @@ public class TagRegistrar
          {
              throw new InvalidClientIdException("Invalid client ID '" + clientId + "'. Client ID CAN ONLY contain alphabets, digits, underscores and hiphen characters.. \n");
          }
+     }
+
+     public Set<String> getTagsForClient(String clientId)
+     {
+         return Collections.unmodifiableSet(clientsById.get(clientId).getTags());
      }
 
     /**
