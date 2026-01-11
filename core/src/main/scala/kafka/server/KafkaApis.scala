@@ -29,7 +29,9 @@ import org.apache.kafka.clients.CommonClientConfigs
 import org.apache.kafka.clients.admin.EndpointType
 import org.apache.kafka.common.acl.AclOperation
 import org.apache.kafka.common.acl.AclOperation._
+import org.apache.kafka.common.compress.Compression
 import org.apache.kafka.common.errors._
+import org.apache.kafka.common.header.Header
 import org.apache.kafka.common.internals.Topic.{GROUP_METADATA_TOPIC_NAME, SHARE_GROUP_STATE_TOPIC_NAME, TRANSACTION_STATE_TOPIC_NAME, isInternal}
 import org.apache.kafka.common.internals.{FatalExitError, Topic}
 import org.apache.kafka.common.message.AddPartitionsToTxnResponseData.{AddPartitionsToTxnResult, AddPartitionsToTxnResultCollection}
@@ -80,7 +82,10 @@ import scala.collection.mutable.ArrayBuffer
 import scala.collection.{Map, Seq, Set, mutable}
 import scala.jdk.CollectionConverters._
 import org.apache.kafka.server.difc.{Capability, CapabilityException, ClientExistsException, ClientNotFoundException, DIFCException, DuplicateTagException, InvalidClientIdException, InvalidTagNameException, NullInputException, TagNotFoundException, TagRegistrar, UnAuthorizedClientException}
-
+import org.apache.kafka.common.header.internals.RecordHeader
+import java.nio.ByteBuffer
+import java.nio.charset.StandardCharsets
+import java.util.ArrayList
 
 /**
  * Logic to handle the various Kafka requests
@@ -817,11 +822,130 @@ class KafkaApis(val requestChannel: RequestChannel,
     LeaderNode(leaderId, leaderEpoch, metadataCache.getAliveBrokerNode(leaderId, ln))
   }
 
+  private def rewriteTagsInRecords(
+                                    records: MemoryRecords,
+                                    senderTags: Set[String],
+                                    tagRegistrar: TagRegistrar
+                                  ): MemoryRecords = {
+
+    val batchIter = records.batches().iterator()
+    if (!batchIter.hasNext)
+      return records
+
+    val batch = batchIter.next()
+
+    // -------- copy metadata from original batch --------
+    val magic                 = batch.magic()
+    val compression           = Compression.of(batch.compressionType()).build()
+    val timestampType         = batch.timestampType()
+    val baseOffset            = batch.baseOffset()
+    val logAppendTime =
+      if (timestampType == TimestampType.LOG_APPEND_TIME)
+        batch.maxTimestamp()
+      else
+        RecordBatch.NO_TIMESTAMP
+
+    val producerId            = batch.producerId()
+    val producerEpoch         = batch.producerEpoch()
+    val baseSequence          = batch.baseSequence()
+    val isTransactional       = batch.isTransactional()
+    val isControlBatch        = batch.isControlBatch()
+    val partitionLeaderEpoch = batch.partitionLeaderEpoch()
+
+    // -------- allocate buffer --------
+    val estimatedSize = records.sizeInBytes()
+    val buffer = ByteBuffer.allocate(estimatedSize)
+
+    val builder = new MemoryRecordsBuilder(
+      buffer,
+      magic,
+      compression,
+      timestampType,
+      baseOffset,
+      logAppendTime,
+      producerId,
+      producerEpoch,
+      baseSequence,
+      isTransactional,
+      isControlBatch,
+      partitionLeaderEpoch,
+      estimatedSize
+    )
+
+    // -------- iterate records --------
+    val recIter = batch.iterator()
+    while (recIter.hasNext) {
+      val record = recIter.next()
+
+      val headers = record.headers()
+      val headerIter = headers.iterator
+
+      var firstTagsHeaderValue: String = null
+
+      // 1. read ONLY the first "tags" header
+      while (headerIter.hasNext && firstTagsHeaderValue == null) {
+        val h = headerIter.next()
+        if (h.key() == "tags" && h.value() != null) {
+          firstTagsHeaderValue =
+            new String(h.value(), StandardCharsets.UTF_8)
+        }
+      }
+
+      // 2. collect valid message tags
+      val messageTags: Set[String] =
+        if (firstTagsHeaderValue == null) Set.empty
+        else
+          firstTagsHeaderValue
+            .split(":")
+            .toSet
+            .filter(tag => tagRegistrar.getTag(tag) >= 0)
+
+      // 3. union with sender tags
+      val finalTags: Set[String] = senderTags ++ messageTags
+      val finalTagsValue = finalTags.mkString(":")
+
+      // 4. rebuild headers (drop ALL old "tags")
+      val newHeadersList = new ArrayList[Header]()
+      val headerIter2 = headers.iterator
+      while (headerIter2.hasNext) {
+        val h = headerIter2.next()
+        if (h.key() != "tags") {
+          newHeadersList.add(new RecordHeader(h.key(), h.value()))
+        }
+      }
+
+      // add canonical tags header
+      newHeadersList.add(
+        new RecordHeader("tags", finalTagsValue.getBytes(StandardCharsets.UTF_8))
+      )
+
+      val newHeaders: Array[Header] =
+        newHeadersList.toArray(new Array[Header](newHeadersList.size()))
+
+      // 5. append rewritten record
+      builder.append(
+        record.timestamp(),
+        record.key(),
+        record.value(),
+        newHeaders
+      )
+    }
+
+    // preserve last offset for idempotent / transactional safety
+    if (batch.magic() >= RecordBatch.MAGIC_VALUE_V2) {
+      builder.overrideLastOffset(batch.lastOffset())
+    }
+
+    builder.build()
+  }
+
   /**
    * Handle a produce request
    */
   def handleProduceRequest(request: RequestChannel.Request, requestLocal: RequestLocal): Unit = {
     val produceRequest = request.body[ProduceRequest]
+    val senderClientId = request.context.clientId()
+    val senderClientTags = tagRegistrar.getTagsForClient(senderClientId)
 
     if (RequestUtils.hasTransactionalRecords(produceRequest)) {
       val isAuthorizedTransactional = produceRequest.transactionalId != null &&
@@ -846,14 +970,18 @@ class KafkaApis(val requestChannel: RequestChannel,
       // We cast the type to avoid causing big change to code base.
       // https://issues.apache.org/jira/browse/KAFKA-10698
       val memoryRecords = partition.records.asInstanceOf[MemoryRecords]
+      val rewrittenRecords = rewriteTagsInRecords(memoryRecords, senderClientTags.asScala, tagRegistrar)
+      ProduceRequest.validateRecords(request.header.apiVersion, rewrittenRecords)
+      authorizedRequestInfo += (topicPartition -> rewrittenRecords)
+
       if (!authorizedTopics.contains(topicPartition.topic))
         unauthorizedTopicResponses += topicPartition -> new PartitionResponse(Errors.TOPIC_AUTHORIZATION_FAILED)
       else if (!metadataCache.contains(topicPartition))
         nonExistingTopicResponses += topicPartition -> new PartitionResponse(Errors.UNKNOWN_TOPIC_OR_PARTITION)
       else
         try {
-          ProduceRequest.validateRecords(request.header.apiVersion, memoryRecords)
-          authorizedRequestInfo += (topicPartition -> memoryRecords)
+          ProduceRequest.validateRecords(request.header.apiVersion, rewrittenRecords)
+          authorizedRequestInfo += (topicPartition -> rewrittenRecords)
         } catch {
           case e: ApiException =>
             invalidRequestResponses += topicPartition -> new PartitionResponse(Errors.forException(e))
