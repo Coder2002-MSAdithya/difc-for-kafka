@@ -10,23 +10,72 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class TagRegistrarTest {
 
-    @Test
-    void testInitialization()
-    {
+    void testInitialization() {
         TagRegistrar registrar = new TagRegistrar();
         registrar.initialize();
 
-        assertEquals(4, registrar.getTagCount()); // tagA, tagB, tagC, tagD
-        assertTrue(registrar.hasTag("tagA"));
-        assertEquals(3, registrar.getClientCount()); // client1,2,3
+        // ---- 1. Verify tag count ----
+        // ORDER_PLACED, FOOD_PREPARED, OUT_FOR_DELIVERY,
+        // PAYMENT_CAPTURED, REFUND_ISSUED, AUDIT_LOG
+        assertEquals(6, registrar.getTagCount());
 
-        ClientDIFCPrivs c1 = registrar.getClient("client1");
-        assertTrue(c1.getOwnedTags().contains("tagA"));
-        assertTrue(c1.getOwnedTags().contains("tagB"));
-        assertTrue(c1.getAddCapabilities().contains("tagC"));
-        assertTrue(c1.getRemoveCapabilities().contains("tagD"));
-        assertTrue(c1.getTags().contains("tagA"));
-        assertTrue(c1.getTags().contains("tagB"));
+        // ---- 2. Verify tags exist ----
+        assertTrue(registrar.hasTag("ORDER_PLACED"));
+        assertTrue(registrar.hasTag("FOOD_PREPARED"));
+        assertTrue(registrar.hasTag("OUT_FOR_DELIVERY"));
+        assertTrue(registrar.hasTag("PAYMENT_CAPTURED"));
+        assertTrue(registrar.hasTag("REFUND_ISSUED"));
+        assertTrue(registrar.hasTag("AUDIT_LOG"));
+
+        // ---- 3. Verify client count ----
+        assertEquals(6, registrar.getClientCount());
+
+        // ---- 4. Validate each client ----
+
+        // ---- customerApp ----
+        ClientDIFCPrivs customerApp = registrar.getClient("customerApp");
+        assertTrue(customerApp.getOwnedTags().contains("ORDER_PLACED"));
+        assertTrue(customerApp.getAddCapabilities().contains("ORDER_PLACED"));
+        assertTrue(customerApp.getTags().contains("ORDER_PLACED"));
+
+        // ---- restaurantSvc ----
+        ClientDIFCPrivs restaurantSvc = registrar.getClient("restaurantSvc");
+        assertTrue(restaurantSvc.getOwnedTags().contains("FOOD_PREPARED"));
+        assertTrue(restaurantSvc.getAddCapabilities().contains("FOOD_PREPARED"));
+        assertTrue(restaurantSvc.getRemoveCapabilities().contains("FOOD_PREPARED"));
+        assertTrue(restaurantSvc.getTags().contains("FOOD_PREPARED"));
+
+        // ---- deliverySvc ----
+        ClientDIFCPrivs deliverySvc = registrar.getClient("deliverySvc");
+        assertTrue(deliverySvc.getOwnedTags().contains("OUT_FOR_DELIVERY"));
+        assertTrue(deliverySvc.getAddCapabilities().contains("OUT_FOR_DELIVERY"));
+        assertTrue(deliverySvc.getRemoveCapabilities().contains("OUT_FOR_DELIVERY"));
+        assertTrue(deliverySvc.getTags().contains("OUT_FOR_DELIVERY"));
+
+        // ---- paymentSvc ----
+        ClientDIFCPrivs paymentSvc = registrar.getClient("paymentSvc");
+        assertTrue(paymentSvc.getOwnedTags().contains("PAYMENT_CAPTURED"));
+        assertTrue(paymentSvc.getOwnedTags().contains("REFUND_ISSUED"));
+
+        assertTrue(paymentSvc.getAddCapabilities().contains("PAYMENT_CAPTURED"));
+        assertTrue(paymentSvc.getRemoveCapabilities().contains("PAYMENT_CAPTURED"));
+        assertTrue(paymentSvc.getAddCapabilities().contains("REFUND_ISSUED"));
+
+        assertTrue(paymentSvc.getTags().contains("PAYMENT_CAPTURED"));
+        // REFUND_ISSUED is NOT in initial context for paymentSvc
+        assertFalse(paymentSvc.getTags().contains("REFUND_ISSUED"));
+
+        // ---- supportSvc ----
+        ClientDIFCPrivs supportSvc = registrar.getClient("supportSvc");
+        assertFalse(supportSvc.getOwnedTags().contains("REFUND_ISSUED"));
+        assertTrue(supportSvc.getAddCapabilities().contains("REFUND_ISSUED"));
+        assertTrue(supportSvc.getTags().contains("REFUND_ISSUED"));
+
+        // ---- auditSvc ----
+        ClientDIFCPrivs auditSvc = registrar.getClient("auditSvc");
+        assertTrue(auditSvc.getOwnedTags().contains("AUDIT_LOG"));
+        assertTrue(auditSvc.getAddCapabilities().contains("AUDIT_LOG"));
+        assertTrue(auditSvc.getTags().contains("AUDIT_LOG"));
     }
 
     @Test
@@ -158,56 +207,41 @@ class TagRegistrarTest {
     }
 
     @Test
-    public void testCanClientReceiveSameClientEmptyMessage()
-    {
-        TagRegistrar registrar = new TagRegistrar();
-        registrar.initialize();
-
-        Set<String> messageTags = new HashSet<>();
-        assertTrue(registrar.canClientReceive("client1", "client1", messageTags));
-    }
-
-    @Test
     public void testCanClientReceiveUnionSubset()
     {
         TagRegistrar registrar = new TagRegistrar();
-        registrar.registerClient("client1");
+        registrar.registerClient("client2");
 
         // Setup: Add tags to clients
-        registrar.createTag("tagX", "client1");
-        registrar.createTag("tagY", "client1");
+        registrar.createTag("tagX", "client2");
+        registrar.createTag("tagY", "client2");
         registrar.addClientPrivs("client2", "tagX", Capability.CAN_ADD); // Ensure client2 is created
 
-        ClientDIFCPrivs sender = registrar.getClient("client1");
         ClientDIFCPrivs receiver = registrar.getClient("client2");
 
-        sender.addTag("tagX");
         receiver.addTag("tagX");
         receiver.addTag("tagY");
 
         Set<String> messageTags = new HashSet<>(Arrays.asList("tagY"));
-        assertTrue(registrar.canClientReceive("client1", "client2", messageTags));
+        assertTrue(registrar.canClientReceive("client2", messageTags));
     }
 
     @Test
     public void testCanClientReceiveUnionNotSubset()
     {
         TagRegistrar registrar = new TagRegistrar();
-        registrar.registerClient("client1");
+        registrar.registerClient("client2");
 
         // Setup: Add tags to clients
-        registrar.createTag("tagX", "client1");
-        registrar.createTag("tagY", "client1");
+        registrar.createTag("tagX", "client2");
+        registrar.createTag("tagY", "client2");
         registrar.addClientPrivs("client2", "tagX", Capability.CAN_ADD); // Ensure client2 is created
 
-        ClientDIFCPrivs sender = registrar.getClient("client1");
         ClientDIFCPrivs receiver = registrar.getClient("client2");
-
-        sender.addTag("tagX");
         receiver.addTag("tagX");
 
         Set<String> messageTags = new HashSet<>(Arrays.asList("tagY"));
-        assertFalse(registrar.canClientReceive("client1", "client2", messageTags));
+        assertFalse(registrar.canClientReceive("client2", messageTags));
     }
 
     @Test
@@ -250,8 +284,7 @@ class TagRegistrarTest {
         registrar.initialize();
 
         Set<String> messageTags = new HashSet<>();
-        assertThrows(ClientNotFoundException.class, () -> registrar.canClientReceive("nonexistent", "client1", messageTags));
-        assertThrows(ClientNotFoundException.class, () -> registrar.canClientReceive("client1", "nonexistent", messageTags));
+        assertThrows(ClientNotFoundException.class, () -> registrar.canClientReceive("nonexistent", messageTags));
     }
 
     @Test
@@ -262,6 +295,6 @@ class TagRegistrarTest {
 
         Set<String> messageTags = new HashSet<>(Arrays.asList("unknownTag"));
         // client1 tags: tagA, tagB; union: tagA, tagB, unknownTag; not subset of itself unless it has unknownTag
-        assertFalse(registrar.canClientReceive("client1", "client1", messageTags));
+        assertFalse(registrar.canClientReceive("deliverySvc", messageTags));
     }
 }

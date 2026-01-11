@@ -391,9 +391,8 @@ public class TagRegistrar
         return OK;
     }
 
-    public boolean canClientReceive(String senderId, String receiverId, Set<String> messageTags)
+    public boolean canClientReceive(String receiverId, Set<String> messageTags)
     {
-        isValidClientId(senderId);
         isValidClientId(receiverId);
 
         for(String tagName : messageTags)
@@ -401,12 +400,8 @@ public class TagRegistrar
             isValidTagName(tagName);
         }
 
-        ClientDIFCPrivs sender = getClient(senderId);
         ClientDIFCPrivs receiver = getClient(receiverId);
-
-        Set<String> union = new HashSet<>(sender.getTags());
-        union.addAll(messageTags);
-        return receiver.getTags().containsAll(union);
+        return receiver.getTags().containsAll(messageTags);
     }
 
     @Override
