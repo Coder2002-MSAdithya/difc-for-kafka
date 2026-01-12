@@ -57,7 +57,7 @@ import org.apache.kafka.common.resource.ResourceType._
 import org.apache.kafka.common.resource.{Resource, ResourceType}
 import org.apache.kafka.common.security.auth.{KafkaPrincipal, SecurityProtocol}
 import org.apache.kafka.common.security.token.delegation.{DelegationToken, TokenInformation}
-import org.apache.kafka.common.utils.{ProducerIdAndEpoch, Time}
+import org.apache.kafka.common.utils.{BufferSupplier, ProducerIdAndEpoch, Time}
 import org.apache.kafka.common.{Node, TopicIdPartition, TopicPartition, Uuid}
 import org.apache.kafka.coordinator.group.{Group, GroupCoordinator}
 import org.apache.kafka.coordinator.share.ShareCoordinator
@@ -83,6 +83,7 @@ import scala.collection.{Map, Seq, Set, mutable}
 import scala.jdk.CollectionConverters._
 import org.apache.kafka.server.difc.{Capability, CapabilityException, ClientExistsException, ClientNotFoundException, DIFCException, DuplicateTagException, InvalidClientIdException, InvalidTagNameException, NullInputException, TagNotFoundException, TagRegistrar, UnAuthorizedClientException}
 import org.apache.kafka.common.header.internals.RecordHeader
+
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
 import java.util.ArrayList
@@ -1096,6 +1097,144 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
   }
 
+  private def filterUnauthorizedRecords(
+                                         records: MemoryRecords,
+                                         receiverClientId: String,
+                                         tagRegistrar: TagRegistrar
+                                       ): MemoryRecords = {
+
+    info("DIFC filter running ... \n")
+    val batchIter = records.batches().iterator()
+    if (!batchIter.hasNext)
+      return records
+
+    val batch = batchIter.next()
+
+    // ---- copy batch metadata ----
+    val magic                 = batch.magic()
+    val compression           = Compression.of(batch.compressionType()).build()
+    val timestampType         = batch.timestampType()
+    val baseOffset            = batch.baseOffset()
+    val logAppendTime =
+      if (timestampType == TimestampType.LOG_APPEND_TIME)
+        batch.maxTimestamp()
+      else
+        RecordBatch.NO_TIMESTAMP
+
+    val producerId            = batch.producerId()
+    val producerEpoch         = batch.producerEpoch()
+    val baseSequence          = batch.baseSequence()
+    val isTransactional       = batch.isTransactional()
+    val isControlBatch        = batch.isControlBatch()
+    val partitionLeaderEpoch = batch.partitionLeaderEpoch()
+
+    val estimatedSize = records.sizeInBytes()
+    val buffer = ByteBuffer.allocate(estimatedSize)
+
+    val builder = new MemoryRecordsBuilder(
+      buffer,
+      magic,
+      compression,
+      timestampType,
+      baseOffset,
+      logAppendTime,
+      producerId,
+      producerEpoch,
+      baseSequence,
+      isTransactional,
+      isControlBatch,
+      partitionLeaderEpoch,
+      estimatedSize
+    )
+
+    // ---- iterate records ----
+    val recIter = batch.iterator()
+    while (recIter.hasNext) {
+      val record = recIter.next()
+
+      val headers = record.headers()
+      val headerIter = headers.iterator
+
+      var firstTagsHeaderValue: String = null
+
+      // ---- read FIRST tags header ----
+      while (headerIter.hasNext && firstTagsHeaderValue == null) {
+        val h = headerIter.next()
+        if (h.key() == "tags" && h.value() != null) {
+          firstTagsHeaderValue =
+            new String(h.value(), StandardCharsets.UTF_8)
+        }
+      }
+
+      val messageTags: Set[String] =
+        if (firstTagsHeaderValue == null) Set.empty
+        else firstTagsHeaderValue.split(":").toSet
+
+      // ---- DIFC check ----
+      val canReceive =
+        tagRegistrar.canClientReceive(
+          receiverClientId,
+          messageTags.asJava
+        )
+
+      info("DIFC inner loop..\n")
+      info("[DIFC] receiver tags : " + tagRegistrar.getClient(receiverClientId).getTags.toString + "\n")
+      info("[DIFC] message tags : " + messageTags.asJava.toString + "\n")
+
+      if (canReceive) {
+        // ---- keep original record ----
+        builder.append(record)
+
+      } else {
+        // ---- compute missing tags ----
+        val clientTags: Set[String] =
+          tagRegistrar.getTagsForClient(receiverClientId).asScala.toSet
+
+        val missingTags: Set[String] =
+          messageTags.diff(clientTags)
+
+        val missingTagsValue =
+          if (missingTags.nonEmpty) missingTags.mkString(":") else ""
+
+        // ---- rebuild headers ----
+        val newHeadersList = new ArrayList[Header]()
+        val it = headers.iterator
+        while (it.hasNext) {
+          val h = it.next()
+          // drop original "tags" header
+          if (h.key() != "tags") {
+            newHeadersList.add(new RecordHeader(h.key(), h.value()))
+          }
+        }
+
+        // ---- add missing_tags header ----
+        newHeadersList.add(
+          new RecordHeader(
+            "missing_tags",
+            missingTagsValue.getBytes(StandardCharsets.UTF_8)
+          )
+        )
+
+        val newHeaders: Array[Header] =
+          newHeadersList.toArray(new Array[Header](newHeadersList.size()))
+
+        // ---- append masked record ----
+        builder.append(
+          record.timestamp(),
+          record.key(),
+          null,          // <-- NULL VALUE (tombstone-style masking)
+          newHeaders
+        )
+      }
+    }
+
+    if (batch.magic() >= RecordBatch.MAGIC_VALUE_V2) {
+      builder.overrideLastOffset(batch.lastOffset())
+    }
+
+    builder.build()
+  }
+
   /**
    * Handle a fetch request
    */
@@ -1170,6 +1309,36 @@ class KafkaApis(val requestChannel: RequestChannel,
       }
     }
 
+    def toMemoryRecords(records: Records): MemoryRecords = {
+      records match {
+        case m: MemoryRecords =>
+          m
+        case other =>
+          // Allocate buffer big enough
+          val buffer = ByteBuffer.allocate(other.sizeInBytes())
+          val builder = MemoryRecords.builder(
+            buffer,
+            Compression.NONE,
+            TimestampType.CREATE_TIME,
+            0L
+          )
+
+          // Stream through *all* batches & records
+          val batchIter = other.batches().iterator()
+          while (batchIter.hasNext) {
+            val batch = batchIter.next()
+            val recIter = batch.streamingIterator(BufferSupplier.NO_CACHING)
+            while (recIter.hasNext) {
+              val r = recIter.next()
+              builder.append(r)
+            }
+            recIter.close()
+          }
+
+          builder.build()
+      }
+    }
+
     // the callback for process a fetch response, invoked before throttling
     def processResponseCallback(responsePartitionData: Seq[(TopicIdPartition, FetchPartitionData)]): Unit = {
       val partitions = new util.LinkedHashMap[TopicIdPartition, FetchResponseData.PartitionData]
@@ -1179,6 +1348,8 @@ class KafkaApis(val requestChannel: RequestChannel,
         val abortedTransactions = data.abortedTransactions.orElse(null)
         val lastStableOffset: Long = data.lastStableOffset.orElse(FetchResponse.INVALID_LAST_STABLE_OFFSET)
         if (data.isReassignmentFetch) reassigningPartitions.add(tp)
+        error("[DIFC] records impl = " + data.records.getClass.getName)
+        val filteredRecords = filterUnauthorizedRecords(toMemoryRecords(data.records), request.context.clientId(), tagRegistrar)
         val partitionData = new FetchResponseData.PartitionData()
           .setPartitionIndex(tp.partition)
           .setErrorCode(maybeDownConvertStorageError(data.error).code)
@@ -1186,7 +1357,7 @@ class KafkaApis(val requestChannel: RequestChannel,
           .setLastStableOffset(lastStableOffset)
           .setLogStartOffset(data.logStartOffset)
           .setAbortedTransactions(abortedTransactions)
-          .setRecords(data.records)
+          .setRecords(filteredRecords)
           .setPreferredReadReplica(data.preferredReadReplica.orElse(FetchResponse.INVALID_PREFERRED_REPLICA_ID))
 
         if (versionId >= 16) {
