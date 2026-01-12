@@ -35,7 +35,7 @@ public class TaggedProducerHandlingExample {
 
         System.out.println("Sending record with header tags : ");
 
-        producer.sendWithTags(record, Set.of("ORDER_PLACED", "FAKE_TAG", "IGNORE_ME", "AUDIT_LOG"), (metadata, exception) -> {
+        producer.send(record, (metadata, exception) -> {
             if (exception != null) {
                 exception.printStackTrace();
             } else {
