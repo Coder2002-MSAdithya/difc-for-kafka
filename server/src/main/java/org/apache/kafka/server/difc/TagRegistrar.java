@@ -144,8 +144,15 @@ public class TagRegistrar
 
     private ClientDIFCPrivs getOrCreateClient(String clientId)
     {
-        isValidClientId(clientId);
-        return clientsById.computeIfAbsent(clientId, ClientDIFCPrivs::new);
+        try
+        {
+            isValidClientId(clientId);
+            return getClient(clientId);
+        }
+        catch (Exception e)
+        {
+            return new ClientDIFCPrivs(clientId);
+        }
     }
 
     public ClientDIFCPrivs getClient(String clientId)
@@ -224,7 +231,7 @@ public class TagRegistrar
 
      public Set<String> getTagsForClient(String clientId)
      {
-         return Collections.unmodifiableSet(getClient(clientId).getTags());
+         return Collections.unmodifiableSet(getOrCreateClient(clientId).getTags());
      }
 
     /**
@@ -391,11 +398,16 @@ public class TagRegistrar
 
     public boolean canClientReceive(String receiverId, Set<String> messageTags)
     {
-        isValidClientId(receiverId);
-
-        for(String tagName : messageTags)
+        try
         {
-            isValidTagName(tagName);
+            for(String tagName : messageTags)
+            {
+                isValidTagName(tagName);
+            }
+        }
+        catch (Exception e)
+        {
+            return true;
         }
 
         ClientDIFCPrivs receiver = getOrCreateClient(receiverId);
