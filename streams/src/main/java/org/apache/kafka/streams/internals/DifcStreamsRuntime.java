@@ -1,4 +1,4 @@
-package org.apache.kafka.streams.internals.metrics;
+package org.apache.kafka.streams.internals;
 
 import org.apache.kafka.clients.consumer.DifcKafkaConsumer;
 import org.apache.kafka.clients.producer.DifcKafkaProducer;
