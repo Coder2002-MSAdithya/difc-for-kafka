@@ -224,7 +224,7 @@ public class TagRegistrar
 
      public Set<String> getTagsForClient(String clientId)
      {
-         return Collections.unmodifiableSet(getOrCreateClient(clientId).getTags());
+         return Collections.unmodifiableSet(getClient(clientId).getTags());
      }
 
     /**
@@ -292,7 +292,7 @@ public class TagRegistrar
 
     public int addTag(String tagName, String clientId)
     {
-        ClientDIFCPrivs client = getOrCreateClient(clientId);
+        ClientDIFCPrivs client = getClient(clientId);
         if(client.getAddCapabilities().contains(tagName))
         {
             client.addTag(tagName);
@@ -303,7 +303,7 @@ public class TagRegistrar
 
     public int removeTag(String tagName, String clientId)
     {
-        ClientDIFCPrivs client = getOrCreateClient(clientId);
+        ClientDIFCPrivs client = getClient(clientId);
 
         if(client.getRemoveCapabilities().contains(tagName))
         {
@@ -320,7 +320,7 @@ public class TagRegistrar
         isValidTagName(tagName);
         if(!tagsByName.containsKey(tagName))
             throw new TagNotFoundException("Tag '" + tagName + "' not found");
-        ClientDIFCPrivs client = getOrCreateClient(clientId);
+        ClientDIFCPrivs client = getClient(clientId);
         client.addCapability(tagName, cap);
         return OK;
     }
@@ -331,7 +331,7 @@ public class TagRegistrar
             throw new NullInputException("clientId, tagName and cap must not be null");
         if(!tagsByName.containsKey(tagName))
             throw new TagNotFoundException("Tag '" + tagName + "' not found");
-        ClientDIFCPrivs client = getOrCreateClient(clientId);
+        ClientDIFCPrivs client = getClient(clientId);
         client.removeCapability(tagName, cap);
         return OK;
     }
@@ -378,7 +378,7 @@ public class TagRegistrar
             throw new TagNotFoundException("Tag '" + tagName + "' not found");
 
         ClientDIFCPrivs ownerClient = getClient(fromClientId);
-        ClientDIFCPrivs client = getOrCreateClient(clientId);
+        ClientDIFCPrivs client = getClient(clientId);
 
         if(!ownerClient.getOwnedTags().contains(tagName))
             throw new UnAuthorizedClientException("Client '" + clientId + "' is unauthorized to perform this operation as you do NOT own this tag.");
