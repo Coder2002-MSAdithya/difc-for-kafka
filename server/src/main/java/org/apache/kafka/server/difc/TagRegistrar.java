@@ -398,7 +398,7 @@ public class TagRegistrar
             isValidTagName(tagName);
         }
 
-        ClientDIFCPrivs receiver = getClient(receiverId);
+        ClientDIFCPrivs receiver = getOrCreateClient(receiverId);
         return receiver.getTags().containsAll(messageTags);
     }
 
