@@ -25,7 +25,7 @@ public final class AddTagsProcessor<K, V>
     @Override
     public void process(final Record<K, V> record) {
         Headers headers = record.headers();
-
+        headers.remove("tags");
         // APPEND semantics
         headers.add(
                 "tags",
