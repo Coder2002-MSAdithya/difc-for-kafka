@@ -1293,4 +1293,16 @@ public class KStreamImpl<K, V> extends AbstractStream<K, V> implements KStream<K
             processNode,
             builder);
     }
+
+    @Override
+    public KStream<K, V> addTags(final Set<String> tags) {
+        Objects.requireNonNull(tags, "tags");
+
+        final String joined = String.join(":", tags);
+
+        return process(
+                () -> new AddTagsProcessor<>(joined),
+                Named.as("add-tags")
+        );
+    }
 }

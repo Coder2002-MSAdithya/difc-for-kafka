@@ -35,6 +35,8 @@ import org.apache.kafka.streams.processor.api.ProcessorSupplier;
 import org.apache.kafka.streams.state.KeyValueStore;
 import org.apache.kafka.streams.state.StoreBuilder;
 
+import java.util.Set;
+
 /**
  * {@code KStream} is an abstraction of a <i>record stream</i> of {@link KeyValue} pairs, i.e., each record is an
  * independent entity/event in the real world.
@@ -3366,4 +3368,14 @@ public interface KStream<K, V> {
         final Named named,
         final String... stateStoreNames
     );
+
+    /**
+     * Appends a single header named "tags" to each record.
+     * The header value is created by joining the given set
+     * of tags using ':' as a separator.
+     *
+     * @param tags set of tag strings
+     * @return a new {@link KStream} with the header added
+     */
+    KStream<K, V> addTags(Set<String> tags);
 }
