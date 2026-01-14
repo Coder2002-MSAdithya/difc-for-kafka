@@ -1504,7 +1504,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
     }
 
     // Visible for testing
-    String getClientId() {
+    public String getClientId() {
         return clientId;
     }
 
