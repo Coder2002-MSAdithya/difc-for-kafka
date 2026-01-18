@@ -54,7 +54,7 @@ import org.apache.kafka.common.message.OffsetDeleteRequestData.{OffsetDeleteRequ
 import org.apache.kafka.common.message.OffsetDeleteResponseData.{OffsetDeleteResponsePartition, OffsetDeleteResponsePartitionCollection, OffsetDeleteResponseTopic, OffsetDeleteResponseTopicCollection}
 import org.apache.kafka.common.message.ShareFetchRequestData.{AcknowledgementBatch, ForgottenTopic}
 import org.apache.kafka.common.message.ShareFetchResponseData.{AcquiredRecords, PartitionData, ShareFetchableTopicResponse}
-import org.apache.kafka.common.metadata.{TopicRecord, PartitionRecord, RegisterBrokerRecord}
+import org.apache.kafka.common.metadata.{PartitionRecord, RegisterBrokerRecord, TopicRecord}
 import org.apache.kafka.common.metadata.FeatureLevelRecord
 import org.apache.kafka.common.metadata.RegisterBrokerRecord.{BrokerEndpoint, BrokerEndpointCollection}
 import org.apache.kafka.common.protocol.ApiMessage
@@ -10841,5 +10841,128 @@ class KafkaApisTest extends Logging {
     assertEquals(Errors.NONE.code, responseData.errorCode())
     assertTrue(responseData.errorMessage().contains("Tag '" + tagName + "' created successfully"))
     assertNotEquals(0, responseData.tagId())
+  }
+
+  /**
+   * Build ONE MemoryRecords containing multiple batches.
+   */
+  import java.nio.ByteBuffer
+  import java.nio.charset.StandardCharsets
+
+  import org.apache.kafka.common.record._
+  import org.apache.kafka.common.header.Header
+  import org.apache.kafka.common.header.internals.RecordHeader
+  import org.apache.kafka.common.record.TimestampType
+  import org.apache.kafka.common.record.CompressionType
+
+  /**
+   * Build ONE MemoryRecords containing multiple batches.
+   *
+   * Kafka 4.x compatible.
+   */
+  def buildMemoryRecordsWithMultipleBatches(
+                                             numBatches: Int,
+                                             recordsPerBatch: Int
+                                           ): MemoryRecords = {
+
+    require(numBatches > 0)
+    require(recordsPerBatch > 0)
+
+    val buffer = ByteBuffer.allocate(1024 * 1024)
+
+    val compression: Compression =
+      Compression.of(CompressionType.NONE).build()
+
+    var baseOffset: Long = 0L
+    val now = System.currentTimeMillis()
+
+    for (batchIdx <- 0 until numBatches) {
+
+      val builder: MemoryRecordsBuilder =
+        MemoryRecords.builder(
+          buffer,
+          RecordBatch.MAGIC_VALUE_V2,
+          compression,
+          TimestampType.CREATE_TIME,
+          baseOffset
+        )
+
+      for (recordIdx <- 0 until recordsPerBatch) {
+
+        val keyBytes: Array[Byte] =
+          s"user-$batchIdx-$recordIdx"
+            .getBytes(StandardCharsets.UTF_8)
+
+        val valueBytes: Array[Byte] =
+          s"""{
+             | "event":"page_view",
+             | "userId":"user-$batchIdx-$recordIdx",
+             | "batch":$batchIdx,
+             | "seq":$recordIdx
+             |}""".stripMargin
+            .getBytes(StandardCharsets.UTF_8)
+
+        val headers: Array[Header] = Array(
+          new RecordHeader(
+            "tags",
+            (if (recordIdx % 2 == 0) "A:B" else "C")
+              .getBytes(StandardCharsets.UTF_8)
+          ),
+          new RecordHeader(
+            "source",
+            s"batch-$batchIdx".getBytes(StandardCharsets.UTF_8)
+          )
+        )
+
+        // ✅ unambiguous overload
+        builder.append(
+          now + recordIdx,
+          keyBytes,
+          valueBytes,
+          headers
+        )
+      }
+
+      builder.close() // 🔴 finalize THIS batch
+
+      // ✅ Kafka 4.x: compute offsets manually
+      baseOffset += recordsPerBatch
+    }
+
+    buffer.flip()
+    MemoryRecords.readableRecords(buffer)
+  }
+
+  @Test
+  def testMultipleBatchCreation(): Unit = {
+    val records = buildMemoryRecordsWithMultipleBatches(3, 4)
+    assertEquals(records.batches().asScala.size, 3)
+    records.batches().asScala.foreach { batch =>
+      assertEquals(4, batch.iterator().asScala.size)
+    }
+  }
+
+  @Test
+  def testRewriteRecordsMultipleBatches(): Unit = {
+    val records = buildMemoryRecordsWithMultipleBatches(3, 4)
+    val kafkaApis = createKafkaApis()
+    val rewrittenRecords = kafkaApis.rewriteTagsInRecords(records, Set("D"), kafkaApis.tagRegistrar)
+    // ---- assert all records have tag "D" ----
+    rewrittenRecords.batches().asScala.foreach { batch =>
+      batch.iterator().asScala.foreach { record =>
+        val tagsHeader = record.headers().find(h => h.key() == "tags")
+        assertNotNull(
+          tagsHeader,
+          s"Record at offset ${record.offset()} missing tags header"
+        )
+        record.headers().find(_.key() == "tags") match {
+          case Some(h) =>
+            val tagsValue = new String(h.value(), StandardCharsets.UTF_8)
+            assertTrue(tagsValue.split(":").contains("D"))
+          case None =>
+            fail(s"Record at offset ${record.offset()} missing tags header")
+        }
+      }
+    }
   }
 }
