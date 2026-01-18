@@ -57,7 +57,7 @@ import org.apache.kafka.common.resource.ResourceType._
 import org.apache.kafka.common.resource.{Resource, ResourceType}
 import org.apache.kafka.common.security.auth.{KafkaPrincipal, SecurityProtocol}
 import org.apache.kafka.common.security.token.delegation.{DelegationToken, TokenInformation}
-import org.apache.kafka.common.utils.{BufferSupplier, ByteUtils, ProducerIdAndEpoch, Time}
+import org.apache.kafka.common.utils.{BufferSupplier, ProducerIdAndEpoch, Time}
 import org.apache.kafka.common.{Node, TopicIdPartition, TopicPartition, Uuid}
 import org.apache.kafka.coordinator.group.{Group, GroupCoordinator}
 import org.apache.kafka.coordinator.share.ShareCoordinator
@@ -823,21 +823,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     LeaderNode(leaderId, leaderEpoch, metadataCache.getAliveBrokerNode(leaderId, ln))
   }
 
-  private def headerSize(h: Header): Int = {
-    val keySize = h.key().getBytes(StandardCharsets.UTF_8).length
-    val valueSize = if (h.value() == null) 0 else h.value().length
-
-    // Kafka encoding:
-    // key length (varint) + key bytes
-    // value length (varint) + value bytes
-    ByteUtils.sizeOfVarint(keySize) +
-      keySize +
-      ByteUtils.sizeOfVarint(valueSize) +
-      valueSize
-  }
-
-  private def estimatedExtraBytesPerRecord(
-                                            senderTags: Set[String],
+  private def estimatedExtraBytesPerRecord(senderTags: Set[String],
                                             maxExistingTagLength: Int = 64
                                           ): Int = {
     // key "tags" + ":" separated values
@@ -850,74 +836,163 @@ class KafkaApis(val requestChannel: RequestChannel,
     keyBytes + valueBytes + 16
   }
 
-  def rewriteTagsInRecords(records: MemoryRecords, senderTags: Set[String], tagRegistrar: TagRegistrar): MemoryRecords =
-  {
+  def rewriteTagsInRecords(
+                            records: MemoryRecords,
+                            senderTags: Set[String],
+                            tagRegistrar: TagRegistrar
+                          ): MemoryRecords = {
+
     val batchIter = records.batches().iterator()
     if (!batchIter.hasNext)
       return records
 
-    // -------- allocate buffer --------
-    val estimatedSize = records.sizeInBytes()
+    val rewrittenBatches = new java.util.ArrayList[MemoryRecords]()
+    val extraPerRecord = estimatedExtraBytesPerRecord(senderTags)
 
-    val batches = new java.util.ArrayList[MemoryRecords]()
-
-    // -------- iterate over all batches --------
-    var batchNum = 0
+    var totalEstimatedSize = 0
 
     while (batchIter.hasNext) {
       val batch = batchIter.next()
-      batchNum += 1
-      info("The Batch number is : " + batchNum)
 
-      // -------- copy metadata from original batch --------
-      val magic                 = batch.magic()
-      val compression           = Compression.of(batch.compressionType()).build()
-      val timestampType         = batch.timestampType()
-      val baseOffset            = batch.baseOffset()
-      val logAppendTime =
-        if (timestampType == TimestampType.LOG_APPEND_TIME)
-          batch.maxTimestamp()
-        else
-          RecordBatch.NO_TIMESTAMP
+      // ---- estimate batch size ----
+      val recordCount = {
+        var c = 0
+        val it = batch.iterator()
+        while (it.hasNext) { it.next(); c += 1 }
+        c
+      }
 
-      val producerId            = batch.producerId()
-      val producerEpoch         = batch.producerEpoch()
-      val baseSequence          = batch.baseSequence()
-      val isTransactional       = batch.isTransactional()
-      val isControlBatch        = batch.isControlBatch()
-      val partitionLeaderEpoch = batch.partitionLeaderEpoch()
+      val estimatedBatchSize =
+        batch.sizeInBytes() + (recordCount * extraPerRecord)
 
-      // Create a builder for this specific batch
-      // We need to calculate size for this specific batch
-      val batchBuffer = ByteBuffer.allocate(batch.sizeInBytes() + 4096)
+      totalEstimatedSize += estimatedBatchSize
+
+      val batchBuffer = ByteBuffer.allocate(estimatedBatchSize)
 
       val builder = new MemoryRecordsBuilder(
         batchBuffer,
-        magic,
-        compression,
-        timestampType,
-        baseOffset,
-        logAppendTime,
-        producerId,
-        producerEpoch,
-        baseSequence,
-        isTransactional,
-        isControlBatch,
-        partitionLeaderEpoch,
-        batch.sizeInBytes()
+        batch.magic(),
+        Compression.of(batch.compressionType()).build(),
+        batch.timestampType(),
+        batch.baseOffset(),
+        if (batch.timestampType() == TimestampType.LOG_APPEND_TIME)
+          batch.maxTimestamp()
+        else
+          RecordBatch.NO_TIMESTAMP,
+        batch.producerId(),
+        batch.producerEpoch(),
+        batch.baseSequence(),
+        batch.isTransactional(),
+        batch.isControlBatch(),
+        batch.partitionLeaderEpoch(),
+        estimatedBatchSize
       )
 
-      // -------- iterate records in this batch --------
       val recIter = batch.iterator()
       while (recIter.hasNext) {
         val record = recIter.next()
 
-        val headers = record.headers()
-        val headerIter = headers.iterator
+        // ---- extract first tags ----
+        var firstTagsHeaderValue: String = null
+        val hdrIter = record.headers().iterator
+        while (hdrIter.hasNext && firstTagsHeaderValue == null) {
+          val h = hdrIter.next()
+          if (h.key() == "tags" && h.value() != null)
+            firstTagsHeaderValue = new String(h.value(), StandardCharsets.UTF_8)
+        }
+
+        val messageTags =
+          if (firstTagsHeaderValue == null) Set.empty[String]
+          else firstTagsHeaderValue.split(":").toSet.filter(tagRegistrar.getTag(_) >= 0)
+
+        val finalTagsBytes =
+          (senderTags ++ messageTags).mkString(":")
+            .getBytes(StandardCharsets.UTF_8)
+
+        val newHeaders =
+          record.headers().iterator
+            .filter(_.key() != "tags")
+            .map(h => new RecordHeader(h.key(), h.value()))
+            .toSeq :+
+            new RecordHeader("tags", finalTagsBytes)
+
+        builder.append(
+          record.timestamp(),
+          record.key(),
+          record.value(),
+          newHeaders.toArray
+        )
+      }
+
+      if (batch.magic() >= RecordBatch.MAGIC_VALUE_V2)
+        builder.overrideLastOffset(batch.lastOffset())
+
+      rewrittenBatches.add(builder.build())
+    }
+
+    val outputBuffer = ByteBuffer.allocate(totalEstimatedSize)
+    rewrittenBatches.forEach { b =>
+      b.buffer().rewind()
+      outputBuffer.put(b.buffer())
+    }
+
+    outputBuffer.flip()
+    MemoryRecords.readableRecords(outputBuffer)
+  }
+
+  private def filterUnauthorizedRecords(
+                                         records: MemoryRecords,
+                                         receiverClientId: String,
+                                         tagRegistrar: TagRegistrar
+                                       ): MemoryRecords = {
+
+    info("DIFC filter running ...")
+
+    val batchIter = records.batches().iterator()
+    if (!batchIter.hasNext)
+      return records
+
+    val rewrittenBatches = new java.util.ArrayList[MemoryRecords]()
+    var totalEstimatedSize = 0
+
+    // -------- iterate ALL batches --------
+    while (batchIter.hasNext) {
+      val batch = batchIter.next()
+
+      // ---- conservative batch size estimate ----
+      val estimatedBatchSize =
+        batch.sizeInBytes() + 256   // small, deterministic margin
+
+      totalEstimatedSize += estimatedBatchSize
+
+      val buffer = ByteBuffer.allocate(estimatedBatchSize)
+
+      val builder = new MemoryRecordsBuilder(
+        buffer,
+        batch.magic(),
+        Compression.of(batch.compressionType()).build(),
+        batch.timestampType(),
+        batch.baseOffset(),
+        if (batch.timestampType() == TimestampType.LOG_APPEND_TIME)
+          batch.maxTimestamp()
+        else
+          RecordBatch.NO_TIMESTAMP,
+        batch.producerId(),
+        batch.producerEpoch(),
+        batch.baseSequence(),
+        batch.isTransactional(),
+        batch.isControlBatch(),
+        batch.partitionLeaderEpoch(),
+        estimatedBatchSize
+      )
+
+      // ---- iterate records in THIS batch ----
+      val recIter = batch.iterator()
+      while (recIter.hasNext) {
+        val record = recIter.next()
 
         var firstTagsHeaderValue: String = null
-
-        // 1. read ONLY the first "tags" header
+        val headerIter = record.headers().iterator
         while (headerIter.hasNext && firstTagsHeaderValue == null) {
           val h = headerIter.next()
           if (h.key() == "tags" && h.value() != null) {
@@ -926,201 +1001,81 @@ class KafkaApis(val requestChannel: RequestChannel,
           }
         }
 
-        // 2. collect valid message tags
         val messageTags: Set[String] =
           if (firstTagsHeaderValue == null) Set.empty
-          else
-            firstTagsHeaderValue
-              .split(":")
+          else firstTagsHeaderValue.split(":").toSet
+
+        val canReceive =
+          tagRegistrar.canClientReceive(
+            receiverClientId,
+            messageTags.asJava
+          )
+
+        if (canReceive) {
+          // ---- keep original record unchanged ----
+          builder.append(record)
+
+        } else {
+          // ---- compute missing tags ----
+          val clientTags =
+            tagRegistrar.getTagsForClient(receiverClientId)
+              .asScala
               .toSet
-              .filter(tag => tagRegistrar.getTag(tag) >= 0)
 
-        // 3. union with sender tags
-        val finalTags: Set[String] = senderTags ++ messageTags
-        val finalTagsValue = finalTags.mkString(":")
+          val missingTags = messageTags.diff(clientTags)
 
-        // 4. rebuild headers (drop ALL old "tags")
-        val newHeadersList = new ArrayList[Header]()
-        val headerIter2 = headers.iterator
-        while (headerIter2.hasNext) {
-          val h = headerIter2.next()
-          if (h.key() != "tags") {
-            newHeadersList.add(new RecordHeader(h.key(), h.value()))
+          val missingTagsValue =
+            if (missingTags.nonEmpty) missingTags.mkString(":") else ""
+
+          // ---- rebuild headers (drop "tags") ----
+          val newHeaders = {
+            val list = new ArrayList[Header]()
+            val it = record.headers().iterator
+            while (it.hasNext) {
+              val h = it.next()
+              if (h.key() != "tags") {
+                list.add(new RecordHeader(h.key(), h.value()))
+              }
+            }
+
+            list.add(
+              new RecordHeader(
+                "missing_tags",
+                missingTagsValue.getBytes(StandardCharsets.UTF_8)
+              )
+            )
+
+            list.toArray(new Array[Header](list.size()))
           }
+
+          // ---- append masked record ----
+          builder.append(
+            record.timestamp(),
+            record.key(),
+            null,          // tombstone-style masking
+            newHeaders
+          )
         }
-
-        // add canonical tags header
-        newHeadersList.add(
-          new RecordHeader("tags", finalTagsValue.getBytes(StandardCharsets.UTF_8))
-        )
-
-        val newHeaders: Array[Header] =
-          newHeadersList.toArray(new Array[Header](newHeadersList.size()))
-
-        // 5. append rewritten record
-        builder.append(
-          record.timestamp(),
-          record.key(),
-          record.value(),
-          newHeaders
-        )
       }
 
-      // preserve last offset for idempotent / transactional safety
+      // ---- preserve last offset ----
       if (batch.magic() >= RecordBatch.MAGIC_VALUE_V2) {
         builder.overrideLastOffset(batch.lastOffset())
       }
 
-      batches.add(builder.build())
+      rewrittenBatches.add(builder.build())
     }
 
-    // Combine all batches into a single MemoryRecords
-    // We need to write all batches to the output buffer
-    val outputBuffer = ByteBuffer.allocate(estimatedSize + 4096)
+    // -------- combine all batches --------
+    val outputBuffer = ByteBuffer.allocate(totalEstimatedSize)
 
-    // Write each batch to the output buffer
-    batches.forEach { batchRecords =>
-      // Copy the batch's buffer to output buffer
-      batchRecords.buffer().position(0)
-      outputBuffer.put(batchRecords.buffer())
+    rewrittenBatches.forEach { b =>
+      b.buffer().rewind()
+      outputBuffer.put(b.buffer())
     }
 
     outputBuffer.flip()
     MemoryRecords.readableRecords(outputBuffer)
-  }
-
-  private def filterUnauthorizedRecords(records: MemoryRecords, receiverClientId: String, tagRegistrar: TagRegistrar): MemoryRecords =
-  {
-    info("DIFC filter running ... \n")
-    val batchIter = records.batches().iterator()
-    if (!batchIter.hasNext)
-      return records
-
-    val batch = batchIter.next()
-
-    // ---- copy batch metadata ----
-    val magic                 = batch.magic()
-    val compression           = Compression.of(batch.compressionType()).build()
-    val timestampType         = batch.timestampType()
-    val baseOffset            = batch.baseOffset()
-    val logAppendTime =
-      if (timestampType == TimestampType.LOG_APPEND_TIME)
-        batch.maxTimestamp()
-      else
-        RecordBatch.NO_TIMESTAMP
-
-    val producerId            = batch.producerId()
-    val producerEpoch         = batch.producerEpoch()
-    val baseSequence          = batch.baseSequence()
-    val isTransactional       = batch.isTransactional()
-    val isControlBatch        = batch.isControlBatch()
-    val partitionLeaderEpoch = batch.partitionLeaderEpoch()
-
-    val estimatedSize = records.sizeInBytes()
-    val buffer = ByteBuffer.allocate(estimatedSize)
-
-    val builder = new MemoryRecordsBuilder(
-      buffer,
-      magic,
-      compression,
-      timestampType,
-      baseOffset,
-      logAppendTime,
-      producerId,
-      producerEpoch,
-      baseSequence,
-      isTransactional,
-      isControlBatch,
-      partitionLeaderEpoch,
-      estimatedSize
-    )
-
-    // ---- iterate records ----
-    val recIter = batch.iterator()
-    while (recIter.hasNext) {
-      val record = recIter.next()
-
-      val headers = record.headers()
-      val headerIter = headers.iterator
-
-      var firstTagsHeaderValue: String = null
-
-      // ---- read FIRST tags header ----
-      while (headerIter.hasNext && firstTagsHeaderValue == null) {
-        val h = headerIter.next()
-        if (h.key() == "tags" && h.value() != null) {
-          firstTagsHeaderValue =
-            new String(h.value(), StandardCharsets.UTF_8)
-        }
-      }
-
-      val messageTags: Set[String] =
-        if (firstTagsHeaderValue == null) Set.empty
-        else firstTagsHeaderValue.split(":").toSet
-
-      // ---- DIFC check ----
-      val canReceive =
-        tagRegistrar.canClientReceive(
-          receiverClientId,
-          messageTags.asJava
-        )
-
-      info("DIFC inner loop..\n")
-      info("[DIFC] receiver tags : " + tagRegistrar.getClient(receiverClientId).getTags.toString + "\n")
-      info("[DIFC] message tags : " + messageTags.asJava.toString + "\n")
-
-      if (canReceive) {
-        // ---- keep original record ----
-        builder.append(record)
-
-      } else {
-        // ---- compute missing tags ----
-        val clientTags: Set[String] =
-          tagRegistrar.getTagsForClient(receiverClientId).asScala.toSet
-
-        val missingTags: Set[String] =
-          messageTags.diff(clientTags)
-
-        val missingTagsValue =
-          if (missingTags.nonEmpty) missingTags.mkString(":") else ""
-
-        // ---- rebuild headers ----
-        val newHeadersList = new ArrayList[Header]()
-        val it = headers.iterator
-        while (it.hasNext) {
-          val h = it.next()
-          // drop original "tags" header
-          if (h.key() != "tags") {
-            newHeadersList.add(new RecordHeader(h.key(), h.value()))
-          }
-        }
-
-        // ---- add missing_tags header ----
-        newHeadersList.add(
-          new RecordHeader(
-            "missing_tags",
-            missingTagsValue.getBytes(StandardCharsets.UTF_8)
-          )
-        )
-
-        val newHeaders: Array[Header] =
-          newHeadersList.toArray(new Array[Header](newHeadersList.size()))
-
-        // ---- append masked record ----
-        builder.append(
-          record.timestamp(),
-          record.key(),
-          null,          // <-- NULL VALUE (tombstone-style masking)
-          newHeaders
-        )
-      }
-    }
-
-    if (batch.magic() >= RecordBatch.MAGIC_VALUE_V2) {
-      builder.overrideLastOffset(batch.lastOffset())
-    }
-
-    builder.build()
   }
 
   /**
