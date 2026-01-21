@@ -808,6 +808,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     }) { (record, builder) =>
       val messageTags = extractFirstTags(record).filter(tagRegistrar.getTag(_) >= 0)
       val finalTagsBytes = (senderTags ++ messageTags).mkString(":").getBytes(StandardCharsets.UTF_8)
+      info("[DIFC] Final message tags are : " + (senderTags ++ messageTags).toString)
       val newHeaders = rebuildHeaders(record, new RecordHeader("tags", finalTagsBytes))
       builder.append(
         record.timestamp(),
@@ -1105,7 +1106,6 @@ class KafkaApis(val requestChannel: RequestChannel,
         val abortedTransactions = data.abortedTransactions.orElse(null)
         val lastStableOffset: Long = data.lastStableOffset.orElse(FetchResponse.INVALID_LAST_STABLE_OFFSET)
         if (data.isReassignmentFetch) reassigningPartitions.add(tp)
-        error("[DIFC] records impl = " + data.records.getClass.getName)
         val filteredRecords = filterUnauthorizedRecords(toMemoryRecords(data.records), request.context.clientId(), tagRegistrar)
         val partitionData = new FetchResponseData.PartitionData()
           .setPartitionIndex(tp.partition)
