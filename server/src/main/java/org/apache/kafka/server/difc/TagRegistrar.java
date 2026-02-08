@@ -231,6 +231,8 @@ public class TagRegistrar
 
      public Set<String> getTagsForClient(String clientId)
      {
+         if(clientsById.get(clientId) == null)
+             return Collections.emptySet();
          return Collections.unmodifiableSet(getOrCreateClient(clientId).getTags());
      }
 
