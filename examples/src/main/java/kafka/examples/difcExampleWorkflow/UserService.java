@@ -6,6 +6,7 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.Properties;
 import java.util.Set;
 import java.util.UUID;
@@ -55,7 +56,7 @@ public class UserService {
         System.out.println("  exit");
 
         BufferedReader reader =
-                new BufferedReader(new InputStreamReader(System.in));
+                new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8));
 
         String line;
 

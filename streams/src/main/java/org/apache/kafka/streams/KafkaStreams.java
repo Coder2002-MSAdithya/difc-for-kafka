@@ -246,6 +246,21 @@ public class KafkaStreams implements AutoCloseable {
      *   </li>
      * </ul>
      */
+
+    /**
+     * Dummy method to verify DIFC integration
+     */
+    public String getDIFCVersion() {
+        return "DIFC-Enabled-Kafka-4.0.0";
+    }
+
+    /**
+     * Another dummy method - returns true if DIFC is enabled
+     */
+    public boolean isDIFCEnabled() {
+        return true;
+    }
+
     public enum State {
         // Note: if you add a new state, check the below methods and how they are used within Streams to see if
         // any of them should be updated to include the new state. For example a new shutdown path or terminal
