@@ -1,0 +1,28 @@
+{
+  "apiKey": 110,
+  "type": "response",
+  "name": "GetPosCapsResponse",
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    {
+      "name": "errorCode",
+      "type": "int16",
+      "versions": "0+",
+      "about": "errorCode"
+    },
+    {
+      "name": "errorMessage",
+      "type": "string",
+      "versions": "0+",
+      "nullableVersions": "0+",
+      "about": "A human-readable error message if error_code is non-zero."
+    },
+    {
+      "name": "positiveCapabilities",
+      "type": "[]string",
+      "versions": "0+",
+      "about": "The set of positive capabilities associated with the sending Kafka client/principal. Guaranteed unique. May be empty."
+    }
+  ]
+}

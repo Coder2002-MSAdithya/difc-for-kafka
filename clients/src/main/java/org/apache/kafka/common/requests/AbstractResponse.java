@@ -295,6 +295,14 @@ public abstract class AbstractResponse implements AbstractRequestResponse {
                 return RemoveClientPrivsResponse.parse(responseBuffer, version);
             case GRANT_OWNER_PRIVILEGES:
                 return GrantOwnerPrivilegesResponse.parse(responseBuffer, version);
+            case GET_LABEL:
+                return GetLabelResponse.parse(responseBuffer, version);
+            case GET_POS_CAPS:
+                return GetPosCapsResponse.parse(responseBuffer, version);
+            case GET_NEG_CAPS:
+                return GetNegCapsResponse.parse(responseBuffer, version);
+            case GET_OWN_LIST:
+                return GetOwnListResponse.parse(responseBuffer, version);
             default:
                 throw new AssertionError(String.format("ApiKey %s is not currently handled in `parseResponse`, the " +
                         "code should be updated to do so.", apiKey));

@@ -1,0 +1,9 @@
+{
+  "apiKey": 109,
+  "type": "request",
+  "name": "GetLabelRequest",
+  "listeners": ["broker", "controller"],
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": []
+}

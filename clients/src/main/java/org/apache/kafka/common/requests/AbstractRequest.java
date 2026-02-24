@@ -358,6 +358,14 @@ public abstract class AbstractRequest implements AbstractRequestResponse {
                 return RemoveClientPrivsRequest.parse(buffer, apiVersion);
             case GRANT_OWNER_PRIVILEGES:
                 return GrantOwnerPrivilegesRequest.parse(buffer, apiVersion);
+            case GET_LABEL:
+                return GetLabelRequest.parse(buffer, apiVersion);
+            case GET_POS_CAPS:
+                return GetPosCapsRequest.parse(buffer, apiVersion);
+            case GET_NEG_CAPS:
+                return GetNegCapsRequest.parse(buffer, apiVersion);
+            case GET_OWN_LIST:
+                return GetOwnListRequest.parse(buffer, apiVersion);
             default:
                 throw new AssertionError(String.format("ApiKey %s is not currently handled in `parseRequest`, the " +
                         "code should be updated to do so.", apiKey));

@@ -1,0 +1,28 @@
+{
+  "apiKey": 109,
+  "type": "response",
+  "name": "GetLabelResponse",
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    {
+      "name": "errorCode",
+      "type": "int16",
+      "versions": "0+",
+      "about": "errorCode"
+    },
+    {
+      "name": "errorMessage",
+      "type": "string",
+      "versions": "0+",
+      "nullableVersions": "0+",
+      "about": "A human-readable error message if error_code is non-zero."
+    },
+    {
+      "name": "labels",
+      "type": "[]string",
+      "versions": "0+",
+      "about": "The set of label names configured in the cluster. The server guarantees uniqueness. May be empty if no labels exist."
+    }
+  ]
+}

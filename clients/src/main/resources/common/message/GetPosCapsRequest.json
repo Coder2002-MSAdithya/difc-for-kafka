@@ -1,0 +1,9 @@
+{
+  "apiKey": 110,
+  "type": "request",
+  "name": "GetPosCapsRequest",
+  "listeners": ["broker", "controller"],
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": []
+}
