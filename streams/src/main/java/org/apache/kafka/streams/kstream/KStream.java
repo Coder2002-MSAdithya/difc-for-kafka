@@ -3378,4 +3378,14 @@ public interface KStream<K, V> {
      * @return a new {@link KStream} with the header added
      */
     KStream<K, V> addTags(Set<String> tags);
+
+    /**
+     * Appends a single header named declassify to each record.
+     * The header value is created by joining the given set
+     * of tags using ':' as a separator.
+     *
+     * @param tags set of tag strings
+     * @return a new {@link KStream} with the header added
+     */
+    KStream<K, V> declassifyTags(Set<String> tags);
 }

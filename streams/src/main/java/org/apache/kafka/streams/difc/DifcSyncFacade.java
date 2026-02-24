@@ -14,25 +14,25 @@ public final class DifcSyncFacade {
 
     public RegisterClientResponseData registerClient() {
         // client.id already == application.id
-        return producer.sendRegisterClientRequest(
+        return producer.registerClient(
                 producer.getClientId()
         );
     }
 
     public CreateTagResponseData createTag(String tagName) {
-        return producer.sendCreateTagRequest(tagName);
+        return producer.createTag(tagName);
     }
 
     public DestroyTagResponseData destroyTag(String tagName) {
-        return producer.sendDestroyTagRequest(tagName);
+        return producer.destroyTag(tagName);
     }
 
     public AddTagResponseData addTag(String tagName) {
-        return producer.sendAddTagRequest(tagName);
+        return producer.addTag(tagName);
     }
 
     public RemoveTagResponseData removeTag(String tagName) {
-        return producer.sendRemoveTagRequest(tagName);
+        return producer.removeTag(tagName);
     }
 
     public AddClientPrivsResponseData addClientPrivs(
@@ -40,7 +40,7 @@ public final class DifcSyncFacade {
             String tagName,
             Capability capability) {
 
-        return producer.sendAddClientPrivsRequest(
+        return producer.addClientPrivs(
                 targetClientId, tagName, capability);
     }
 
@@ -49,7 +49,7 @@ public final class DifcSyncFacade {
             String tagName,
             Capability capability) {
 
-        return producer.sendRemoveClientPrivsRequest(
+        return producer.removeClientPrivs(
                 targetClientId, tagName, capability);
     }
 
@@ -57,7 +57,7 @@ public final class DifcSyncFacade {
             String targetClientId,
             String tagName) {
 
-        return producer.sendGrantOwnerPrivilegesRequest(
+        return producer.grantOwnerPrivileges(
                 targetClientId, tagName);
     }
 }

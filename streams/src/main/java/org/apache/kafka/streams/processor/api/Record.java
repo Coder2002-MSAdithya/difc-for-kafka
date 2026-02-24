@@ -16,11 +16,14 @@
  */
 package org.apache.kafka.streams.processor.api;
 
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.apache.kafka.common.header.Headers;
 import org.apache.kafka.common.header.internals.RecordHeaders;
 import org.apache.kafka.streams.errors.StreamsException;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * A data class representing an incoming record for processing in a {@link Processor}
@@ -163,6 +166,33 @@ public class Record<K, V> {
      */
     public Record<K, V> withHeaders(final Headers headers) {
         return new Record<>(key, value, timestamp, headers);
+    }
+
+    private Record<K, V> withHeaderFromSet(final String headerName, final Set<String> tags)
+    {
+        if (tags == null || tags.isEmpty())
+        {
+            return this;
+        }
+
+        // Join using colon (order irrelevant as per your requirement)
+        final String joined = String.join(":", tags);
+
+        final RecordHeaders newHeaders = new RecordHeaders(this.headers);
+        newHeaders.remove(headerName);
+        newHeaders.add(headerName, joined.getBytes(StandardCharsets.UTF_8));
+
+        return new Record<>(key, value, timestamp, newHeaders);
+    }
+
+    public Record<K, V> addTags(final Set<String> tags)
+    {
+        return withHeaderFromSet("tags", tags);
+    }
+
+    public Record<K, V> declassifyTags(final Set<String> tags)
+    {
+        return withHeaderFromSet("declassify", tags);
     }
 
     @Override
