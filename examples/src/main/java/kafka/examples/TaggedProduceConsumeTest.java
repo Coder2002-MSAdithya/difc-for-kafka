@@ -123,12 +123,12 @@ public class TaggedProduceConsumeTest {
         try (KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props)) {
 
             consumer.subscribe(Collections.singleton(TOPIC));
-            consumer.sendAddTagRequest("REFUND_ISSUED");
+            consumer.addTag("REFUND_ISSUED");
             System.out.println("Consumer started with client.id=paymentSvc");
 
             while (true) {
 
-//                consumer.sendAddTagRequest("REFUND_ISSUED");
+//                consumer.addTag("REFUND_ISSUED");
 
                 ConsumerRecords<String, String> records =
                         consumer.poll(Duration.ofSeconds(1));

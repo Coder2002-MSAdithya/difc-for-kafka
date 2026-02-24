@@ -101,7 +101,7 @@ public class DIFCFullFoodDeliveryTest
             try
             {
                 System.out.println("supportSvc tries to REMOVE PAYMENT_CAPTURED (should fail)");
-                supportSvc.sendRemoveTagRequest("PAYMENT_CAPTURED");
+                supportSvc.removeTag("PAYMENT_CAPTURED");
                 System.out.println("❌ ERROR: unauthorized remove succeeded");
             }
             catch (Exception e)
@@ -112,7 +112,7 @@ public class DIFCFullFoodDeliveryTest
             try
             {
                 System.out.println("Trying duplicate CREATE_TAG (ORDER_PLACED)");
-                customerApp.sendCreateTagRequest("ORDER_PLACED");
+                customerApp.createTag("ORDER_PLACED");
                 System.out.println("❌ ERROR: duplicate create succeeded");
             }
             catch (Exception e)
@@ -127,7 +127,7 @@ public class DIFCFullFoodDeliveryTest
             System.out.println("paymentSvc transfers ownership of REFUND_ISSUED to supportSvc");
 
             GrantOwnerPrivilegesResponseData grant =
-                    paymentSvc.sendGrantOwnerPrivilegesRequest("supportSvc", "REFUND_ISSUED");
+                    paymentSvc.grantOwnerPrivileges("supportSvc", "REFUND_ISSUED");
 
             System.out.println("Ownership transfer result: " + grant.errorMessage());
 
@@ -177,7 +177,7 @@ public class DIFCFullFoodDeliveryTest
     {
         try {
             RegisterClientResponseData r =
-                    p.sendRegisterClientRequest(clientId);
+                    p.registerClient(clientId);
             System.out.println("Registered " + clientId + " -> " + r.errorMessage());
         } catch (Exception e) {
             System.out.println("Register " + clientId + " skipped: " + e.getMessage());
@@ -188,7 +188,7 @@ public class DIFCFullFoodDeliveryTest
     {
         try {
             CreateTagResponseData r =
-                    p.sendCreateTagRequest(tag);
+                    p.createTag(tag);
             System.out.println("Created tag " + tag + " -> " + r.errorMessage());
         } catch (Exception e) {
             System.out.println("Create tag " + tag + " skipped: " + e.getMessage());
@@ -199,7 +199,7 @@ public class DIFCFullFoodDeliveryTest
     {
         try {
             AddTagResponseData r =
-                    p.sendAddTagRequest(tag);
+                    p.addTag(tag);
             System.out.println("Added tag " + tag + " -> " + r.errorMessage());
         } catch (Exception e) {
             System.out.println("Add tag " + tag + " failed: " + e.getMessage());
@@ -213,7 +213,7 @@ public class DIFCFullFoodDeliveryTest
     {
         try {
             AddClientPrivsResponseData r =
-                    p.sendAddClientPrivsRequest(
+                    p.addClientPrivs(
                             targetClient,
                             tag,
                             Capability.CAN_ADD

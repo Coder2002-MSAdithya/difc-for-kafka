@@ -17,7 +17,7 @@ public class NotificationService {
         );
 
         KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
-        consumer.sendRegisterClientRequest("notification-service");
+        consumer.registerClient("notification-service");
 
         consumer.subscribe(Collections.singletonList(KafkaConfig.TOPIC));
 
@@ -27,8 +27,8 @@ public class NotificationService {
             ConsumerRecords<String, String> records =
                     consumer.poll(Duration.ofMillis(1000));
 
-            consumer.sendAddTagRequest("user-events");
-            consumer.sendAddTagRequest("user-events-s");
+            consumer.addTag("user-events");
+            consumer.addTag("user-events-s");
 
             for (ConsumerRecord<String, String> record : records) {
                 String value = record.value();

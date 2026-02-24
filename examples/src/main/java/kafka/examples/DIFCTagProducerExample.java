@@ -23,8 +23,8 @@ public class DIFCTagProducerExample
         {
 
             // Test 1: Create tag
-            System.out.println("=== Testing sendCreateTagRequest ===");
-            CreateTagResponseData resp1 = producer.sendCreateTagRequest("security-tag");
+            System.out.println("=== Testing createTag ===");
+            CreateTagResponseData resp1 = producer.createTag("security-tag");
             System.out.println("Error message here is : " + resp1.errorMessage());
 
             // Test 2: Send regular message (verify producer still works)
@@ -36,7 +36,7 @@ public class DIFCTagProducerExample
             System.out.println("\n=== Testing duplicate tag (should fail) ===");
             try
             {
-                CreateTagResponseData resp2 = producer.sendCreateTagRequest("security-tag");
+                CreateTagResponseData resp2 = producer.createTag("security-tag");
                 System.out.println("Error message here is : " + resp2.errorMessage());
             }
             catch (Exception e)

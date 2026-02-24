@@ -23,26 +23,26 @@ public class UserService {
         // === DIFC BOOTSTRAP ===
         try {
             System.out.println(
-                    producer.sendRegisterClientRequest(CLIENT_ID).errorMessage()
+                    producer.registerClient(CLIENT_ID).errorMessage()
             );
 
             // Create tags (idempotent)
-            producer.sendCreateTagRequest("user-events");
-            producer.sendCreateTagRequest("user-events-s");
+            producer.createTag("user-events");
+            producer.createTag("user-events-s");
 
             // Label self
-            producer.sendAddTagRequest("user-events");
+            producer.addTag("user-events");
 
             // Grant downstream privileges
-            producer.sendAddClientPrivsRequest(
+            producer.addClientPrivs(
                     "user-address-service", "user-events", Capability.CAN_ADD
             );
 
-            producer.sendAddClientPrivsRequest(
+            producer.addClientPrivs(
                     "notification-service", "user-events", Capability.CAN_ADD
             );
 
-            producer.sendAddClientPrivsRequest(
+            producer.addClientPrivs(
                     "notification-service", "user-events-s", Capability.CAN_ADD
             );
         }

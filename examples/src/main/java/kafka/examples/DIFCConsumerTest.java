@@ -48,7 +48,7 @@ public class DIFCConsumerTest {
             // --------------------------------------------------
             System.out.println("\n=== 1. Register client ===");
             try {
-                RegisterClientResponseData r = consumer.sendRegisterClientRequest("deliverySvc");
+                RegisterClientResponseData r = consumer.registerClient("deliverySvc");
                 System.out.println("RegisterClient -> " + r.errorMessage());
             } catch (Exception e) {
                 System.out.println("RegisterClient skipped: " + e.getMessage());
@@ -60,7 +60,7 @@ public class DIFCConsumerTest {
             System.out.println("\n=== 2. Add tag OUT_FOR_DELIVERY ===");
             try {
                 AddTagResponseData r =
-                        consumer.sendAddTagRequest("OUT_FOR_DELIVERY");
+                        consumer.addTag("OUT_FOR_DELIVERY");
                 System.out.println("AddTag -> " + r.errorMessage());
             } catch (Exception e) {
                 System.out.println("AddTag failed: " + e.getMessage());
@@ -72,7 +72,7 @@ public class DIFCConsumerTest {
             System.out.println("\n=== 3. Remove tag OUT_FOR_DELIVERY ===");
             try {
                 RemoveTagResponseData r =
-                        consumer.sendRemoveTagRequest("OUT_FOR_DELIVERY");
+                        consumer.removeTag("OUT_FOR_DELIVERY");
                 System.out.println("RemoveTag -> " + r.errorMessage());
             } catch (Exception e) {
                 System.out.println("RemoveTag failed (expected maybe): " + e.getMessage());
@@ -84,7 +84,7 @@ public class DIFCConsumerTest {
             System.out.println("\n=== 4. Create tag TEMP_TEST_TAG ===");
             try {
                 CreateTagResponseData r =
-                        consumer.sendCreateTagRequest("TEMP_TEST_TAG");
+                        consumer.createTag("TEMP_TEST_TAG");
                 System.out.println("CreateTag -> " + r.errorMessage()
                         + " (id=" + r.tagId() + ")");
             } catch (Exception e) {
@@ -97,7 +97,7 @@ public class DIFCConsumerTest {
             System.out.println("\n=== 5. Grant CAN_ADD on TEMP_TEST_TAG to supportSvc ===");
             try {
                 AddClientPrivsResponseData r =
-                        consumer.sendAddClientPrivsRequest(
+                        consumer.addClientPrivs(
                                 "supportSvc",
                                 "TEMP_TEST_TAG",
                                 Capability.CAN_ADD   // CAN_ADD
@@ -113,7 +113,7 @@ public class DIFCConsumerTest {
             System.out.println("\n=== 6. Transfer ownership of TEMP_TEST_TAG to supportSvc ===");
             try {
                 GrantOwnerPrivilegesResponseData r =
-                        consumer.sendGrantOwnerPrivilegesRequest(
+                        consumer.grantOwnerPrivs(
                                 "supportSvc",
                                 "TEMP_TEST_TAG"
                         );

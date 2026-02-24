@@ -22,7 +22,7 @@ public class UserAddressService {
 
         KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
 
-        consumer.sendRegisterClientRequest("user-address-service");
+        consumer.registerClient("user-address-service");
 
         consumer.subscribe(Collections.singletonList(KafkaConfig.TOPIC));
 
@@ -32,7 +32,7 @@ public class UserAddressService {
             ConsumerRecords<String, String> records =
                     consumer.poll(Duration.ofMillis(1000));
 
-            consumer.sendAddTagRequest("user-events");
+            consumer.addTag("user-events");
 
             for (ConsumerRecord<String, String> record : records) {
                 String value = record.value();
