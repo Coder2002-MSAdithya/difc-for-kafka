@@ -14,7 +14,7 @@ public class DifcKafkaConsumer<K, V> extends KafkaConsumer<K, V> {
         super(configs, keyDeserializer, valueDeserializer);
     }
     // your existing DIFC APIs:
-    // sendCreateTagRequest(...)
-    // sendRegisterClientRequest(...)
+    // createTag(...)
+    // registerClient(...)
     // etc.
 }

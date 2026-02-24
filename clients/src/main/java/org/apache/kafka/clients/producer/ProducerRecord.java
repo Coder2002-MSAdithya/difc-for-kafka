@@ -20,7 +20,10 @@ import org.apache.kafka.common.header.Header;
 import org.apache.kafka.common.header.Headers;
 import org.apache.kafka.common.header.internals.RecordHeaders;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * A key/value pair to be sent to Kafka. This consists of a topic name to which the record is being sent, an optional
@@ -193,6 +196,39 @@ public class ProducerRecord<K, V> {
         String timestamp = this.timestamp == null ? "null" : this.timestamp.toString();
         return "ProducerRecord(topic=" + topic + ", partition=" + partition + ", headers=" + headers + ", key=" + key + ", value=" + value +
             ", timestamp=" + timestamp + ")";
+    }
+
+    private ProducerRecord<K, V> withHeaderFromSet(String headerName, Set<String> tags)
+    {
+        if (tags == null || tags.isEmpty())
+        {
+            return this;
+        }
+
+        String joined = String.join(":", tags);
+
+        RecordHeaders newHeaders = new RecordHeaders(this.headers);
+        newHeaders.remove(headerName);
+        newHeaders.add(headerName, joined.getBytes(StandardCharsets.UTF_8));
+
+        return new ProducerRecord<>(
+                this.topic,
+                this.partition,
+                this.timestamp,
+                this.key,
+                this.value,
+                newHeaders
+        );
+    }
+
+    public ProducerRecord<K, V> addTags(Set<String> tags)
+    {
+        return withHeaderFromSet("tags", tags);
+    }
+
+    public ProducerRecord<K, V> declassifyTags(Set<String> tags)
+    {
+        return withHeaderFromSet("declassify", tags);
     }
 
     @Override

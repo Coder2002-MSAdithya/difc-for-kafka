@@ -139,7 +139,11 @@ public enum ApiKeys {
     REMOVE_TAG(ApiMessageType.REMOVE_TAG, false),
     ADD_CLIENT_PRIVS(ApiMessageType.ADD_CLIENT_PRIVS, false),
     REMOVE_CLIENT_PRIVS(ApiMessageType.REMOVE_CLIENT_PRIVS, false),
-    GRANT_OWNER_PRIVILEGES(ApiMessageType.GRANT_OWNER_PRIVILEGES, false);
+    GRANT_OWNER_PRIVILEGES(ApiMessageType.GRANT_OWNER_PRIVILEGES, false),
+    GET_LABEL(ApiMessageType.GET_LABEL, false),
+    GET_POS_CAPS(ApiMessageType.GET_POS_CAPS, false),
+    GET_NEG_CAPS(ApiMessageType.GET_NEG_CAPS, false),
+    GET_OWN_LIST(ApiMessageType.GET_OWN_LIST, false);
 
 
     private static final Map<ApiMessageType.ListenerType, EnumSet<ApiKeys>> APIS_BY_LISTENER =

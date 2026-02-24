@@ -1100,6 +1100,62 @@ public class Sender implements Runnable {
         return sendDIFCRequest(builder, DestroyTagResponseData.class, "No ready broker available for DestroyTag request");
     }
 
+    public CompletableFuture<GetLabelResponseData> sendGetLabelRequest() {
+
+        GetLabelRequestData data = new GetLabelRequestData();
+
+        GetLabelRequest.Builder builder =
+                new GetLabelRequest.Builder(data);
+
+        return sendDIFCRequest(
+                builder,
+                GetLabelResponseData.class,
+                "No ready broker available for GetLabel request"
+        );
+    }
+
+    public CompletableFuture<GetPosCapsResponseData> sendGetPosCapsRequest() {
+
+        GetPosCapsRequestData data = new GetPosCapsRequestData();
+
+        GetPosCapsRequest.Builder builder =
+                new GetPosCapsRequest.Builder(data);
+
+        return sendDIFCRequest(
+                builder,
+                GetPosCapsResponseData.class,
+                "No ready broker available for GetPosCaps request"
+        );
+    }
+
+    public CompletableFuture<GetNegCapsResponseData> sendGetNegCapsRequest() {
+
+        GetNegCapsRequestData data = new GetNegCapsRequestData();
+
+        GetNegCapsRequest.Builder builder =
+                new GetNegCapsRequest.Builder(data);
+
+        return sendDIFCRequest(
+                builder,
+                GetNegCapsResponseData.class,
+                "No ready broker available for GetNegCaps request"
+        );
+    }
+
+    public CompletableFuture<GetOwnListResponseData> sendGetOwnListRequest() {
+
+        GetOwnListRequestData data = new GetOwnListRequestData();
+
+        GetOwnListRequest.Builder builder =
+                new GetOwnListRequest.Builder(data);
+
+        return sendDIFCRequest(
+                builder,
+                GetOwnListResponseData.class,
+                "No ready broker available for GetOwnList request"
+        );
+    }
+
     /**
      * A collection of sensors for the sender
      */

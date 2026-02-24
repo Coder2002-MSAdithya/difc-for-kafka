@@ -92,8 +92,7 @@ import org.apache.kafka.common.message.*;
 import org.apache.kafka.common.metrics.KafkaMetric;
 import org.apache.kafka.common.metrics.Metrics;
 import org.apache.kafka.common.metrics.MetricsReporter;
-import org.apache.kafka.common.requests.JoinGroupRequest;
-import org.apache.kafka.common.requests.ListOffsetsRequest;
+import org.apache.kafka.common.requests.*;
 import org.apache.kafka.common.serialization.Deserializer;
 import org.apache.kafka.common.telemetry.internals.ClientTelemetryReporter;
 import org.apache.kafka.common.telemetry.internals.ClientTelemetryUtils;
@@ -1859,6 +1858,22 @@ public class AsyncKafkaConsumer<K, V> implements ConsumerDelegate<K, V> {
 
     @Override
     public GrantOwnerPrivilegesResponseData sendGrantOwnerPrivilegesRequest(String targetClientId, String tagName) {
+        return null;
+    }
+
+    public GetLabelResponseData sendGetLabelRequest() {
+        return null;
+    }
+
+    public GetPosCapsResponseData sendGetPosCapsRequest() {
+        return null;
+    }
+
+    public GetNegCapsResponseData sendGetNegCapsRequest() {
+        return null;
+    }
+
+    public GetOwnListResponseData sendGetOwnListRequest() {
         return null;
     }
 

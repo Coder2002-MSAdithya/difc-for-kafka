@@ -809,28 +809,6 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         producerMetrics.recordAbortTxn(time.nanoseconds() - abortStart);
     }
 
-    protected ProducerRecord<K, V> withTagsHeader(ProducerRecord<K, V> record, Set<String> tags) {
-        if (tags == null || tags.isEmpty())
-            return record;
-
-        // Join tags with :
-        String joined = String.join(":", tags);
-
-        // Copy headers and add our own
-        Headers headers = new RecordHeaders(record.headers());
-        headers.add("tags", joined.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-
-        // Create a new ProducerRecord with same fields but new headers
-        return new ProducerRecord<>(
-                record.topic(),
-                record.partition(),
-                record.timestamp(),
-                record.key(),
-                record.value(),
-                headers
-        );
-    }
-
     /**
      * Asynchronously send a record to a topic. Equivalent to <code>send(record, null)</code>.
      * See {@link #send(ProducerRecord, Callback)} for details.
@@ -961,12 +939,12 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
     public Future<RecordMetadata> sendWithTags(ProducerRecord<K, V> record,
                                        Set<String> tags,
                                        Callback callback) {
-        ProducerRecord<K, V> tagged = withTagsHeader(record, tags);
+        ProducerRecord<K, V> tagged = record.addTags(tags);
         return send(tagged, callback);
     }
 
     public Future<RecordMetadata> sendWithTags(ProducerRecord<K, V> record, Set<String> tags) {
-        ProducerRecord<K, V> tagged = withTagsHeader(record, tags);
+        ProducerRecord<K, V> tagged = record.addTags(tags);
         return send(tagged, null);
     }
 
@@ -1532,37 +1510,37 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         return -1;
     }
 
-    public CreateTagResponseData sendCreateTagRequest(String tagName)
+    public CreateTagResponseData createTag(String tagName)
     {
         throwIfProducerClosed();
         return await(sender.sendCreateTagRequest(tagName), "CreateTag failed");
     }
 
-    public DestroyTagResponseData sendDestroyTagRequest(String tagName)
+    public DestroyTagResponseData destroyTag(String tagName)
     {
         throwIfProducerClosed();
         return await(sender.sendDestroyTagRequest(tagName), "DestroyTag failed");
     }
 
-    public RegisterClientResponseData sendRegisterClientRequest(String clientId)
+    public RegisterClientResponseData registerClient(String clientId)
     {
         throwIfProducerClosed();
         return await(sender.sendRegisterClientRequest(clientId), "RegisterClient failed");
     }
 
-    public AddTagResponseData sendAddTagRequest(String tagName)
+    public AddTagResponseData addTag(String tagName)
     {
         throwIfProducerClosed();
         return await(sender.sendAddTagRequest(tagName), "AddTag failed");
     }
 
-    public RemoveTagResponseData sendRemoveTagRequest(String tagName)
+    public RemoveTagResponseData removeTag(String tagName)
     {
         throwIfProducerClosed();
         return await(sender.sendRemoveTagRequest(tagName), "RemoveTag failed");
     }
 
-    public AddClientPrivsResponseData sendAddClientPrivsRequest(String targetClientId, String tagName, Capability capability)
+    public AddClientPrivsResponseData addClientPrivs(String targetClientId, String tagName, Capability capability)
     {
         throwIfProducerClosed();
         return await(
@@ -1571,7 +1549,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         );
     }
 
-    public RemoveClientPrivsResponseData sendRemoveClientPrivsRequest(String targetClientId, String tagName, Capability capability)
+    public RemoveClientPrivsResponseData removeClientPrivs(String targetClientId, String tagName, Capability capability)
     {
         throwIfProducerClosed();
         return await(
@@ -1580,12 +1558,48 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         );
     }
 
-    public GrantOwnerPrivilegesResponseData sendGrantOwnerPrivilegesRequest(String targetClientId, String tagName)
+    public GrantOwnerPrivilegesResponseData grantOwnerPrivileges(String targetClientId, String tagName)
     {
         throwIfProducerClosed();
         return await(
                 sender.sendGrantOwnerPrivilegesRequest(targetClientId, tagName),
                 "GrantOwnerPrivileges failed"
+        );
+    }
+
+    public GetLabelResponseData getLabel()
+    {
+        throwIfProducerClosed();
+        return await(
+                sender.sendGetLabelRequest(),
+                "GetLabel failed"
+        );
+    }
+
+    public GetPosCapsResponseData getAddCapabilities()
+    {
+        throwIfProducerClosed();
+        return await(
+                sender.sendGetPosCapsRequest(),
+                "Get add capabilities failed"
+        );
+    }
+
+    public GetNegCapsResponseData getRemoveCapabilities()
+    {
+        throwIfProducerClosed();
+        return await(
+                sender.sendGetNegCapsRequest(),
+                "Get remove capabilities failed"
+        );
+    }
+
+    public GetOwnListResponseData ownedTags()
+    {
+        throwIfProducerClosed();
+        return await(
+                sender.sendGetOwnListRequest(),
+                "Get owned tags list failed"
         );
     }
 

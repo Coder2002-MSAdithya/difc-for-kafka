@@ -1470,4 +1470,55 @@ public class ClassicKafkaConsumer<K, V> implements ConsumerDelegate<K, V> {
         );
     }
 
+    public GetLabelResponseData sendGetLabelRequest() {
+        GetLabelRequestData data = new GetLabelRequestData();
+        GetLabelRequest.Builder builder = new GetLabelRequest.Builder(data);
+        Timer timer = time.timer(requestTimeoutMs);
+
+        return sendCustomRequestAndWait(
+                builder,
+                GetLabelResponseData.class,
+                timer,
+                "GetLabel request failed"
+        );
+    }
+
+    public GetPosCapsResponseData sendGetPosCapsRequest() {
+        GetPosCapsRequestData data = new GetPosCapsRequestData();
+        GetPosCapsRequest.Builder builder = new GetPosCapsRequest.Builder(data);
+        Timer timer = time.timer(requestTimeoutMs);
+
+        return sendCustomRequestAndWait(
+                builder,
+                GetPosCapsResponseData.class,
+                timer,
+                "GetPosCaps request failed"
+        );
+    }
+
+    public GetNegCapsResponseData sendGetNegCapsRequest() {
+        GetNegCapsRequestData data = new GetNegCapsRequestData();
+        GetNegCapsRequest.Builder builder = new GetNegCapsRequest.Builder(data);
+        Timer timer = time.timer(requestTimeoutMs);
+
+        return sendCustomRequestAndWait(
+                builder,
+                GetNegCapsResponseData.class,
+                timer,
+                "GetNegCaps request failed"
+        );
+    }
+
+    public GetOwnListResponseData sendGetOwnListRequest() {
+        GetOwnListRequestData data = new GetOwnListRequestData();
+        GetOwnListRequest.Builder builder = new GetOwnListRequest.Builder(data);
+        Timer timer = time.timer(requestTimeoutMs);
+
+        return sendCustomRequestAndWait(
+                builder,
+                GetOwnListResponseData.class,
+                timer,
+                "GetOwnList request failed"
+        );
+    }
 }

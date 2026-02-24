@@ -57,4 +57,12 @@ public interface ConsumerDelegate<K, V> extends Consumer<K, V> {
     RemoveClientPrivsResponseData sendRemoveClientPrivsRequest(String targetClientId, String tagName, byte capability);
 
     GrantOwnerPrivilegesResponseData sendGrantOwnerPrivilegesRequest(String targetClientId, String tagName);
+
+    public GetLabelResponseData sendGetLabelRequest();
+
+    public GetPosCapsResponseData sendGetPosCapsRequest();
+
+    public GetNegCapsResponseData sendGetNegCapsRequest();
+
+    public GetOwnListResponseData sendGetOwnListRequest();
 }
