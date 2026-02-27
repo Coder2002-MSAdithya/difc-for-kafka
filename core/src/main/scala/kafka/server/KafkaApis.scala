@@ -592,6 +592,16 @@ class KafkaApis(val requestChannel: RequestChannel,
     requestHelper.sendMaybeThrottle(request, response)
   }
 
+  def handleDummyRequest(request: RequestChannel.Request): Unit = {
+    val responseData = new DummyResponseData()
+      .setMessage("Hello from broker!")
+
+    requestHelper.sendMaybeThrottle(
+      request,
+      new DummyResponse(responseData)
+    )
+  }
+
   /**
    * Handle an offset commit request
    */
