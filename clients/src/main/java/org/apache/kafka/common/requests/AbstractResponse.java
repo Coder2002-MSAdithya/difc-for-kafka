@@ -303,6 +303,8 @@ public abstract class AbstractResponse implements AbstractRequestResponse {
                 return GetNegCapsResponse.parse(responseBuffer, version);
             case GET_OWN_LIST:
                 return GetOwnListResponse.parse(responseBuffer, version);
+            case DUMMY:
+                return DummyResponse.parse(responseBuffer, version);
             default:
                 throw new AssertionError(String.format("ApiKey %s is not currently handled in `parseResponse`, the " +
                         "code should be updated to do so.", apiKey));

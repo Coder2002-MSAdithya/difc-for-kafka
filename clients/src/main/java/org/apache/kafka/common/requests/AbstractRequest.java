@@ -366,6 +366,8 @@ public abstract class AbstractRequest implements AbstractRequestResponse {
                 return GetNegCapsRequest.parse(buffer, apiVersion);
             case GET_OWN_LIST:
                 return GetOwnListRequest.parse(buffer, apiVersion);
+            case DUMMY:
+                return DummyRequest.parse(buffer, apiVersion);
             default:
                 throw new AssertionError(String.format("ApiKey %s is not currently handled in `parseRequest`, the " +
                         "code should be updated to do so.", apiKey));

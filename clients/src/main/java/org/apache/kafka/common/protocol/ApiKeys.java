@@ -143,7 +143,8 @@ public enum ApiKeys {
     GET_LABEL(ApiMessageType.GET_LABEL, false),
     GET_POS_CAPS(ApiMessageType.GET_POS_CAPS, false),
     GET_NEG_CAPS(ApiMessageType.GET_NEG_CAPS, false),
-    GET_OWN_LIST(ApiMessageType.GET_OWN_LIST, false);
+    GET_OWN_LIST(ApiMessageType.GET_OWN_LIST, false),
+    DUMMY(ApiMessageType.DUMMY, false);
 
 
     private static final Map<ApiMessageType.ListenerType, EnumSet<ApiKeys>> APIS_BY_LISTENER =

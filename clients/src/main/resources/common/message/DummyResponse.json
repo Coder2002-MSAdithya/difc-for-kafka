@@ -1,0 +1,16 @@
+{
+  "apiKey": 113,
+  "type": "response",
+  "name": "DummyResponse",
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    {
+      "name": "message",
+      "type": "string",
+      "versions": "0+",
+      "nullableVersions": "0+",
+      "about": "A simple response message returned by the broker."
+    }
+  ]
+}

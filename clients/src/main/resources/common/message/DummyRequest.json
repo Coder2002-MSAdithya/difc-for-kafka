@@ -1,0 +1,9 @@
+{
+  "apiKey": 113,
+  "type": "request",
+  "name": "DummyRequest",
+  "listeners": ["broker"],
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": []
+}
