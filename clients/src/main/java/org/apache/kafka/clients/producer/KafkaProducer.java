@@ -87,6 +87,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 
@@ -249,6 +250,8 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
     private final RecordAccumulator accumulator;
     private final Sender sender;
     private final Thread ioThread;
+    private Thread difcThread;
+    private AtomicBoolean difcThreadRunning;
     private final Compression compression;
     private final Sensor errors;
     private final Time time;
@@ -443,9 +446,21 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             }
             this.errors = this.metrics.sensor("errors");
             this.sender = newSender(logContext, kafkaClient, this.metadata);
+
             String ioThreadName = NETWORK_THREAD_PREFIX + " | " + clientId;
+            String difcThreadName = "kafka-producer-difc-request-thread | " + clientId;
+
             this.ioThread = new KafkaThread(ioThreadName, this.sender, true);
             this.ioThread.start();
+
+            this.difcThreadRunning = new AtomicBoolean(true);
+            this.difcThread = new KafkaThread(difcThreadName, () -> {
+                while(difcThreadRunning.get()) {
+                    System.out.println("Hello from additional thread");
+                }
+            }, true);
+            this.difcThread.start();
+
             config.logUnused();
             AppInfoParser.registerAppInfo(JMX_PREFIX, clientId, metrics, time.milliseconds());
             log.debug("Kafka producer started");
@@ -494,6 +509,8 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         this.metadata = metadata;
         this.sender = sender;
         this.ioThread = ioThread;
+        this.difcThread = null;
+        this.difcThreadRunning = new AtomicBoolean(false);
         this.clientTelemetryReporter = clientTelemetryReporter;
     }
 
@@ -1399,6 +1416,18 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
                         closeTimer.update();
                     }
                 }
+                if (this.difcThread != null) {
+                    this.difcThreadRunning.set(false);
+                    this.difcThread.interrupt();
+                    try {
+                        this.difcThread.join(closeTimer.remainingMs());
+                    } catch (InterruptedException t) {
+                        firstException.compareAndSet(null, new InterruptException(t));
+                        log.error("Interrupted while joining difcThread", t);
+                    } finally {
+                        closeTimer.update();
+                    }
+                }
             }
         }
 
@@ -1410,6 +1439,18 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             if (!invokedFromCallback) {
                 try {
                     this.ioThread.join();
+                } catch (InterruptedException e) {
+                    firstException.compareAndSet(null, new InterruptException(e));
+                }
+            }
+        }
+
+        if (this.difcThread != null && this.difcThread.isAlive()) {
+            this.difcThreadRunning.set(false);
+            this.difcThread.interrupt();
+            if (!invokedFromCallback) {
+                try {
+                    this.difcThread.join();
                 } catch (InterruptedException e) {
                     firstException.compareAndSet(null, new InterruptException(e));
                 }

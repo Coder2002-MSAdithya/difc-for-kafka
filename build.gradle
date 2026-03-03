@@ -1829,6 +1829,8 @@ project(':examples') {
 
   dependencies {
     implementation project(':clients')
+      runtimeOnly libs.slf4jLog4j2
+      runtimeOnly libs.log4j2Core
   }
 
   javadoc {
