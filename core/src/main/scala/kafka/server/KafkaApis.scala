@@ -262,6 +262,11 @@ class KafkaApis(val requestChannel: RequestChannel,
         case ApiKeys.ADD_CLIENT_PRIVS => handleAddClientPrivsRequest(request)
         case ApiKeys.REMOVE_CLIENT_PRIVS => handleRemoveClientPrivsRequest(request)
         case ApiKeys.GRANT_OWNER_PRIVILEGES => handleGrantOwnerPrivilegesRequest(request)
+        case ApiKeys.GET_LABEL => handleGetTagsRequest(request)
+        case ApiKeys.GET_POS_CAPS => handleGetAddCapsRequest(request)
+        case ApiKeys.GET_POS_CAPS => handleGetAddCapsRequest(request)
+        case ApiKeys.GET_NEG_CAPS => handleGetRemoveCapsRequest(request)
+        case ApiKeys.GET_OWN_LIST => handleGetOwnedTagsRequest(request)
         case ApiKeys.DUMMY => handleDummyRequest(request)
         case _ => throw new IllegalStateException(s"No handler for request api key ${request.header.apiKey}")
       }
@@ -601,6 +606,119 @@ class KafkaApis(val requestChannel: RequestChannel,
       request,
       new DummyResponse(responseData)
     )
+  }
+
+
+  def handleGetTagsRequest(request: RequestChannel.Request): Unit = {
+    val clientId = request.context.clientId()
+
+    var error: Errors = Errors.NONE
+    var errorMessage: String = null
+    var label: util.List[String] = Collections.emptyList[String]()
+
+    try {
+      info("Handling GET_TAGS request")
+      label = tagRegistrar.getTagsForClient(clientId).asScala.toList.asJava
+      errorMessage = s"Tags for client '$clientId' sent successfully"
+    } catch {
+      case e: Throwable =>
+        val (err, msg) = difcErrorFromException(e)
+        error = err
+        errorMessage = msg
+    }
+
+    val response = new GetLabelResponse(
+      new GetLabelResponseData()
+        .setErrorCode(error.code)
+        .setErrorMessage(errorMessage)
+        .setLabels(label)
+    )
+
+    requestHelper.sendMaybeThrottle(request, response)
+  }
+
+  def handleGetAddCapsRequest(request: RequestChannel.Request): Unit = {
+    val clientId = request.context.clientId()
+
+    var error: Errors = Errors.NONE
+    var errorMessage: String = null
+    var tags: util.List[String] = Collections.emptyList[String]()
+
+    try {
+      info("Handling GET_POS_CAPS request")
+      tags = tagRegistrar.getPositiveCapacityTagsForClient(clientId).asScala.toList.asJava
+      errorMessage = s"Tags for client '$clientId' sent successfully"
+    } catch {
+      case e: Throwable =>
+        val (err, msg) = difcErrorFromException(e)
+        error = err
+        errorMessage = msg
+    }
+
+    val response = new GetPosCapsResponse(
+      new GetPosCapsResponseData()
+        .setErrorCode(error.code)
+        .setErrorMessage(errorMessage)
+        .setPositiveCapabilities(tags)
+    )
+
+    requestHelper.sendMaybeThrottle(request, response)
+  }
+
+  def handleGetRemoveCapsRequest(request: RequestChannel.Request): Unit = {
+    val clientId = request.context.clientId()
+
+    var error: Errors = Errors.NONE
+    var errorMessage: String = null
+    var tags: util.List[String] = Collections.emptyList[String]()
+
+    try {
+      info("Handling GET_NEG_CAPS request")
+      tags = tagRegistrar.getPositiveCapacityTagsForClient(clientId).asScala.toList.asJava
+      errorMessage = s"Tags for client '$clientId' sent successfully"
+    } catch {
+      case e: Throwable =>
+        val (err, msg) = difcErrorFromException(e)
+        error = err
+        errorMessage = msg
+    }
+
+    val response = new GetNegCapsResponse(
+      new GetNegCapsResponseData()
+        .setErrorCode(error.code)
+        .setErrorMessage(errorMessage)
+        .setNegativeCapabilities(tags)
+    )
+
+    requestHelper.sendMaybeThrottle(request, response)
+  }
+
+  def handleGetOwnedTagsRequest(request: RequestChannel.Request): Unit = {
+    val clientId = request.context.clientId()
+
+    var error: Errors = Errors.NONE
+    var errorMessage: String = null
+    var tags: util.List[String] = Collections.emptyList[String]()
+
+    try {
+      info("Handling GET_OWN_LIST request")
+      tags = tagRegistrar.getPositiveCapacityTagsForClient(clientId).asScala.toList.asJava
+      errorMessage = s"Tags for client '$clientId' sent successfully"
+    } catch {
+      case e: Throwable =>
+        val (err, msg) = difcErrorFromException(e)
+        error = err
+        errorMessage = msg
+    }
+
+    val response = new GetNegCapsResponse(
+      new GetNegCapsResponseData()
+        .setErrorCode(error.code)
+        .setErrorMessage(errorMessage)
+        .setNegativeCapabilities(tags)
+    )
+
+    requestHelper.sendMaybeThrottle(request, response)
   }
 
   /**

@@ -236,6 +236,27 @@ public class TagRegistrar
          return Collections.unmodifiableSet(getOrCreateClient(clientId).getTags());
      }
 
+     public Set<String> getPositiveCapacityTagsForClient(String clientId)
+     {
+         if(clientsById.get(clientId) == null)
+             return Collections.emptySet();
+         return Collections.unmodifiableSet(getOrCreateClient(clientId).getAddCapabilities());
+     }
+
+     public Set<String> getNegativeCapacityTagsForClient(String clientId)
+     {
+         if(clientsById.get(clientId) == null)
+             return Collections.emptySet();
+         return Collections.unmodifiableSet(getOrCreateClient(clientId).getRemoveCapabilities());
+     }
+
+     public Set<String> getOwnedTagsForClient(String clientId)
+     {
+         if(clientsById.get(clientId) == null)
+             return Collections.emptySet();
+         return Collections.unmodifiableSet(getOrCreateClient(clientId).getOwnedTags());
+     }
+
     /**
      * Create a tag.
      *
