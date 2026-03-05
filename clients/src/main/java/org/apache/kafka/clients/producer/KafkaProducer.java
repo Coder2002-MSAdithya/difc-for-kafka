@@ -23,16 +23,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecords;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.clients.consumer.OffsetCommitCallback;
-import org.apache.kafka.clients.producer.internals.BufferPool;
-import org.apache.kafka.clients.producer.internals.BuiltInPartitioner;
-import org.apache.kafka.clients.producer.internals.KafkaProducerMetrics;
-import org.apache.kafka.clients.producer.internals.ProducerInterceptors;
-import org.apache.kafka.clients.producer.internals.ProducerMetadata;
-import org.apache.kafka.clients.producer.internals.ProducerMetrics;
-import org.apache.kafka.clients.producer.internals.RecordAccumulator;
-import org.apache.kafka.clients.producer.internals.Sender;
-import org.apache.kafka.clients.producer.internals.TransactionManager;
-import org.apache.kafka.clients.producer.internals.TransactionalRequestResult;
+import org.apache.kafka.clients.producer.internals.*;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.Metric;
@@ -250,8 +241,8 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
     private final RecordAccumulator accumulator;
     private final Sender sender;
     private final Thread ioThread;
-    private Thread difcThread;
-    private AtomicBoolean difcThreadRunning;
+    private final DifcRequestSender difcSender;
+    private final Thread difcThread;
     private final Compression compression;
     private final Sensor errors;
     private final Time time;
@@ -453,12 +444,8 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             this.ioThread = new KafkaThread(ioThreadName, this.sender, true);
             this.ioThread.start();
 
-            this.difcThreadRunning = new AtomicBoolean(true);
-            this.difcThread = new KafkaThread(difcThreadName, () -> {
-                while(difcThreadRunning.get()) {
-                    System.out.println("Hello from additional thread");
-                }
-            }, true);
+            this.difcSender = newDifcRequestSender(logContext, this.metadata);
+            this.difcThread = KafkaThread.daemon(difcThreadName, this.difcSender);
             this.difcThread.start();
 
             config.logUnused();
@@ -509,9 +496,9 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         this.metadata = metadata;
         this.sender = sender;
         this.ioThread = ioThread;
-        this.difcThread = null;
-        this.difcThreadRunning = new AtomicBoolean(false);
         this.clientTelemetryReporter = clientTelemetryReporter;
+        this.difcSender = null;
+        this.difcThread = null;
     }
 
     // visible for testing
@@ -546,6 +533,28 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
                 producerConfig.getLong(ProducerConfig.RETRY_BACKOFF_MS_CONFIG),
                 this.transactionManager,
                 apiVersions);
+    }
+
+    DifcRequestSender newDifcRequestSender(LogContext logContext, ProducerMetadata metadata) {
+        int maxInflightRequests = producerConfig.getInt(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION);
+        ProducerMetrics metricsRegistry = new ProducerMetrics(this.metrics);
+        Sensor throttleTimeSensor = Sender.throttleTimeSensor(metricsRegistry.senderMetrics);
+        KafkaClient difcClient = ClientUtils.createNetworkClient(producerConfig,
+                this.metrics,
+                "producer-difc",
+                logContext,
+                apiVersions,
+                time,
+                maxInflightRequests,
+                metadata,
+                throttleTimeSensor,
+                clientTelemetryReporter.map(ClientTelemetryReporter::telemetrySender).orElse(null));
+        return new DifcRequestSender(logContext,
+                difcClient,
+                metadata,
+                time,
+                producerConfig.getInt(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG),
+                producerConfig.getLong(ProducerConfig.RETRY_BACKOFF_MS_CONFIG), 5);
     }
 
     private static Compression configureCompression(ProducerConfig config) {
@@ -1417,7 +1426,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
                     }
                 }
                 if (this.difcThread != null) {
-                    this.difcThreadRunning.set(false);
+                    this.difcSender.initiateClose();
                     this.difcThread.interrupt();
                     try {
                         this.difcThread.join(closeTimer.remainingMs());
@@ -1446,7 +1455,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         }
 
         if (this.difcThread != null && this.difcThread.isAlive()) {
-            this.difcThreadRunning.set(false);
+            this.difcSender.initiateClose();
             this.difcThread.interrupt();
             if (!invokedFromCallback) {
                 try {
