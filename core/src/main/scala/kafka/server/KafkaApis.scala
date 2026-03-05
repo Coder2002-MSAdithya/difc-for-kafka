@@ -262,6 +262,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         case ApiKeys.ADD_CLIENT_PRIVS => handleAddClientPrivsRequest(request)
         case ApiKeys.REMOVE_CLIENT_PRIVS => handleAddClientPrivsRequest(request)
         case ApiKeys.GRANT_OWNER_PRIVILEGES => handleGrantOwnerPrivilegesRequest(request)
+        case ApiKeys.DUMMY => handleDummyRequest(request)
         case _ => throw new IllegalStateException(s"No handler for request api key ${request.header.apiKey}")
       }
     } catch {
