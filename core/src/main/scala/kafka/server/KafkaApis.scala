@@ -264,7 +264,6 @@ class KafkaApis(val requestChannel: RequestChannel,
         case ApiKeys.GRANT_OWNER_PRIVILEGES => handleGrantOwnerPrivilegesRequest(request)
         case ApiKeys.GET_LABEL => handleGetTagsRequest(request)
         case ApiKeys.GET_POS_CAPS => handleGetAddCapsRequest(request)
-        case ApiKeys.GET_POS_CAPS => handleGetAddCapsRequest(request)
         case ApiKeys.GET_NEG_CAPS => handleGetRemoveCapsRequest(request)
         case ApiKeys.GET_OWN_LIST => handleGetOwnedTagsRequest(request)
         case ApiKeys.DUMMY => handleDummyRequest(request)
@@ -297,7 +296,6 @@ class KafkaApis(val requestChannel: RequestChannel,
   }
 
   private def difcErrorFromException(e: Throwable): (Errors, String) = e match {
-
     case e: NullInputException =>
       (Errors.INVALID_REQUEST, e.getMessage)
 

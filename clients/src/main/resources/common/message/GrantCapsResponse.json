@@ -1,0 +1,22 @@
+{
+  "apiKey": 114,
+  "type": "response",
+  "name": "GrantCapResponse",
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    {
+      "name": "errorCode",
+      "type": "int16",
+      "versions": "0+",
+      "about": "0 on success; non-zero on error."
+    },
+    {
+      "name": "errorMessage",
+      "type": "string",
+      "versions": "0+",
+      "nullableVersions": "0+",
+      "about": "Human-readable error description when errorCode is non-zero."
+    }
+  ]
+}

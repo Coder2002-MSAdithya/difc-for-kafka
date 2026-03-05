@@ -1,0 +1,22 @@
+{
+  "apiKey": 114,
+  "type": "request",
+  "name": "GrantCapRequest",
+  "listeners": ["broker", "controller"],
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    {
+      "name": "tagName",
+      "type": "string",
+      "versions": "0+",
+      "about": "The tag name for which the capability should be granted."
+    },
+    {
+      "name": "capability",
+      "type": "string",
+      "versions": "0+",
+      "about": "The capability to grant for the provided tag name."
+    }
+  ]
+}
