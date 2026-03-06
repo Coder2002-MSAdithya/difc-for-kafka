@@ -144,6 +144,7 @@ public enum ApiKeys {
     GET_POS_CAPS(ApiMessageType.GET_POS_CAPS, false),
     GET_NEG_CAPS(ApiMessageType.GET_NEG_CAPS, false),
     GET_OWN_LIST(ApiMessageType.GET_OWN_LIST, false),
+    GRANT_CAP(ApiMessageType.GRANT_CAP, false),
     DUMMY(ApiMessageType.DUMMY, false);
 
 

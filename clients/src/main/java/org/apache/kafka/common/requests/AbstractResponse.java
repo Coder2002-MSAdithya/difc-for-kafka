@@ -303,6 +303,8 @@ public abstract class AbstractResponse implements AbstractRequestResponse {
                 return GetNegCapsResponse.parse(responseBuffer, version);
             case GET_OWN_LIST:
                 return GetOwnListResponse.parse(responseBuffer, version);
+            case GRANT_CAP:
+                return GrantCapResponse.parse(responseBuffer, version);
             case DUMMY:
                 return DummyResponse.parse(responseBuffer, version);
             default:
