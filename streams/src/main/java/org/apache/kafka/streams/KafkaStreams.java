@@ -16,14 +16,19 @@
  */
 package org.apache.kafka.streams;
 
+import org.apache.kafka.clients.ApiVersions;
 import org.apache.kafka.clients.CommonClientConfigs;
+import org.apache.kafka.clients.DefaultHostResolver;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.ListOffsetsResult.ListOffsetsResultInfo;
 import org.apache.kafka.clients.admin.MemberToRemove;
 import org.apache.kafka.clients.admin.RemoveMembersFromConsumerGroupOptions;
 import org.apache.kafka.clients.admin.RemoveMembersFromConsumerGroupResult;
+import org.apache.kafka.clients.admin.internals.AdminBootstrapAddresses;
+import org.apache.kafka.clients.admin.internals.AdminMetadataManager;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.Metric;
 import org.apache.kafka.common.MetricName;
@@ -80,6 +85,9 @@ import org.apache.kafka.streams.state.HostInfo;
 import org.apache.kafka.streams.state.internals.GlobalStateStoreProvider;
 import org.apache.kafka.streams.state.internals.QueryableStoreProvider;
 import org.apache.kafka.streams.state.internals.StreamThreadStateStoreProvider;
+import org.apache.kafka.clients.KafkaClient;
+import org.apache.kafka.streams.processor.internals.DifcStreamRequestSender;
+import org.apache.kafka.common.utils.KafkaThread;
 
 import org.slf4j.Logger;
 
@@ -190,6 +198,9 @@ public class KafkaStreams implements AutoCloseable {
     private KafkaStreams.StateListener stateListener;
     private BiConsumer<Throwable, Boolean> streamsUncaughtExceptionHandler;
     private final Object changeThreadCount = new Object();
+
+    private DifcStreamRequestSender difcStreamRequestSender;
+    private Thread difcStreamThread;
 
     // container states
     /**
@@ -1050,6 +1061,43 @@ public class KafkaStreams implements AutoCloseable {
 
         stateDirCleaner = setupStateDirCleaner();
         rocksDBMetricsRecordingService = maybeCreateRocksDBMetricsRecordingService(clientId, applicationConfigs);
+
+        // DIFC background sender setup
+        final String difcClientId = clientId + "-difc";
+        final ApiVersions difcApiVersions = new ApiVersions();
+        final AdminBootstrapAddresses bootstrapAddresses = AdminBootstrapAddresses.fromConfig(applicationConfigs);
+        final AdminMetadataManager difcMetadataManager = new AdminMetadataManager(logContext,
+                applicationConfigs.getLong(StreamsConfig.RETRY_BACKOFF_MS_CONFIG),
+                applicationConfigs.getLong(StreamsConfig.METADATA_MAX_AGE_CONFIG),
+                bootstrapAddresses.usingBootstrapControllers()
+        );
+
+        difcMetadataManager.update(org.apache.kafka.common.Cluster.bootstrap(bootstrapAddresses.addresses()), time.milliseconds());
+
+        final int maxInFlightRequests = applicationConfigs.getInt(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION);
+
+        final KafkaClient difcKafkaClient = org.apache.kafka.clients.ClientUtils.createNetworkClient(
+                applicationConfigs,
+                difcClientId,
+                metrics,
+                "streams-difc",
+                logContext,
+                difcApiVersions,
+                time,
+                maxInFlightRequests,
+                applicationConfigs.getInt(CommonClientConfigs.REQUEST_TIMEOUT_MS_CONFIG),
+                null,
+                difcMetadataManager.updater(),
+                new DefaultHostResolver(),
+                null,
+                null
+        );
+
+        difcStreamRequestSender = new DifcStreamRequestSender(logContext, difcKafkaClient, streamsMetadataState, time,
+                            applicationConfigs.getInt(CommonClientConfigs.REQUEST_TIMEOUT_MS_CONFIG),
+                           applicationConfigs.getLong(StreamsConfig.RETRY_BACKOFF_MS_CONFIG));
+        difcStreamThread = KafkaThread.daemon(difcClientId + "-thread", difcStreamRequestSender);
+
     }
 
     private StreamThread createAndAddStreamThread(final long cacheSizePerThread, final int threadIdx) {
@@ -1413,6 +1461,10 @@ public class KafkaStreams implements AutoCloseable {
                 globalStreamThread.start();
             }
 
+            if (difcStreamThread != null) {
+                difcStreamThread.start();
+            }
+
             final int numThreads = processStreamThread(StreamThread::start);
 
             log.info("Started {} stream threads", numThreads);
@@ -1575,8 +1627,20 @@ public class KafkaStreams implements AutoCloseable {
             log.error("Failed to transition to PENDING_SHUTDOWN, current state is {}", state);
             throw new StreamsException("Failed to shut down while in state " + state);
         } else {
-
             final Thread shutdownThread = shutdownHelper(false, timeoutMs, leaveGroup);
+
+            if (difcStreamRequestSender != null) {
+                difcStreamRequestSender.initiateClose();
+            }
+            if (difcStreamThread != null) {
+                difcStreamThread.interrupt();
+                try {
+                    difcStreamThread.join(Math.max(1L, timeoutMs));
+                } catch (final InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    log.warn("Interrupted while joining DIFC stream thread", e);
+                }
+            }
 
             shutdownThread.setDaemon(true);
             shutdownThread.start();
@@ -1596,6 +1660,7 @@ public class KafkaStreams implements AutoCloseable {
             log.info("Skipping shutdown since we are already in {}", state());
         } else {
             final Thread shutdownThread = shutdownHelper(true, -1, false);
+
 
             shutdownThread.setDaemon(true);
             shutdownThread.start();

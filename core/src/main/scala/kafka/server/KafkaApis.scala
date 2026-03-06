@@ -81,8 +81,9 @@ import scala.annotation.nowarn
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.{Map, Seq, Set, mutable}
 import scala.jdk.CollectionConverters._
-import org.apache.kafka.server.difc.{Capability, CapabilityException, ClientExistsException, ClientNotFoundException, DIFCException, DuplicateTagException, InvalidClientIdException, InvalidTagNameException, NullInputException, TagNotFoundException, TagRegistrar, UnAuthorizedClientException}
+import org.apache.kafka.server.difc.{Capability, TagRegistrar}
 import org.apache.kafka.common.header.internals.RecordHeader
+import org.apache.kafka.server.difc.exceptions.{CapabilityException, ClientExistsException, ClientNotFoundException, DIFCException, DuplicateTagException, InvalidClientIdException, InvalidTagNameException, NullInputException, TagNotFoundException, UnAuthorizedClientException}
 
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets

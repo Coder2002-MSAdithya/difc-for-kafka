@@ -1,5 +1,6 @@
 package org.apache.kafka.server.difc;
 
+import org.apache.kafka.server.difc.exceptions.NullInputException;
 import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
