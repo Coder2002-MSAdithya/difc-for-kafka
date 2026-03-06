@@ -1,4 +1,4 @@
-package org.apache.kafka.server.difc;
+package org.apache.kafka.server.difc.exceptions;
 
 public class NullInputException extends TagException
 {

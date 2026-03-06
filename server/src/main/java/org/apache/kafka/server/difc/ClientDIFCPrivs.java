@@ -1,4 +1,6 @@
 package org.apache.kafka.server.difc;
+import org.apache.kafka.server.difc.exceptions.CapabilityException;
+
 import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
