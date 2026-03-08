@@ -10946,7 +10946,7 @@ class KafkaApisTest extends Logging {
   def testRewriteRecordsMultipleBatches(): Unit = {
     val records = buildMemoryRecordsWithMultipleBatches(3, 4)
     val kafkaApis = createKafkaApis()
-    val rewrittenRecords = kafkaApis.rewriteTagsInRecords(records, Set("D"), kafkaApis.tagRegistrar)
+    val rewrittenRecords = kafkaApis.rewriteTagsInRecords(records, "client")
     // ---- assert all records have tag "D" ----
     rewrittenRecords.batches().asScala.foreach { batch =>
       batch.iterator().asScala.foreach { record =>

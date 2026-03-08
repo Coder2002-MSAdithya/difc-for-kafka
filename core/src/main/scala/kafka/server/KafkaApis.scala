@@ -598,7 +598,7 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   def handleDummyRequest(request: RequestChannel.Request): Unit = {
     val responseData = new DummyResponseData()
-      .setMessage("Hello from broker!")
+      .setMessage(s"Hello, ${request.context.clientId()} from broker!")
 
     requestHelper.sendMaybeThrottle(
       request,
@@ -922,7 +922,6 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   private def allowedDeclassifyTags(record: Record,
                                      senderClientId: String,
-                                     tagRegistrar: TagRegistrar
                                    ): Set[String] = {
     val requested = extractDeclassifyTags(record)
     requested.filter { tag =>
@@ -944,10 +943,9 @@ class KafkaApis(val requestChannel: RequestChannel,
   }
 
   def rewriteTagsInRecords(records: MemoryRecords,
-                           senderClientId: String,
-                           senderTags: Set[String],
-                           tagRegistrar: TagRegistrar): MemoryRecords = {
+                           senderClientId: String): MemoryRecords = {
 
+    val senderTags = tagRegistrar.getTagsForClient(senderClientId).asScala
     val extraPerRecord = estimatedExtraBytesPerRecord(senderTags)
 
     rewriteRecordsByBatch(records, batch => {
@@ -960,7 +958,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       batch.sizeInBytes() + (count * extraPerRecord)
     }) { (record, builder) =>
       val messageTags = extractFirstTags(record).filter(tagRegistrar.getTag(_) >= 0)
-      val allowedRemovals = allowedDeclassifyTags(record, senderClientId, tagRegistrar)
+      val allowedRemovals = allowedDeclassifyTags(record, senderClientId)
       val combinedTags = (senderTags ++ messageTags) -- allowedRemovals
       val finalTagsBytes = combinedTags.mkString(":").getBytes(StandardCharsets.UTF_8)
 
@@ -1001,7 +999,6 @@ class KafkaApis(val requestChannel: RequestChannel,
   def handleProduceRequest(request: RequestChannel.Request, requestLocal: RequestLocal): Unit = {
     val produceRequest = request.body[ProduceRequest]
     val senderClientId = request.context.clientId()
-    val senderClientTags = tagRegistrar.getTagsForClient(senderClientId)
 
     if (RequestUtils.hasTransactionalRecords(produceRequest)) {
       val isAuthorizedTransactional = produceRequest.transactionalId != null &&
@@ -1026,7 +1023,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       // We cast the type to avoid causing big change to code base.
       // https://issues.apache.org/jira/browse/KAFKA-10698
       val memoryRecords = partition.records.asInstanceOf[MemoryRecords]
-      val rewrittenRecords = rewriteTagsInRecords(memoryRecords, senderClientId, senderClientTags.asScala, tagRegistrar)
+      val rewrittenRecords = rewriteTagsInRecords(memoryRecords, senderClientId)
       info("Rewritten Records : " + rewrittenRecords.toString)
 
       if (!authorizedTopics.contains(topicPartition.topic))
