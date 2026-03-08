@@ -87,7 +87,6 @@ import org.apache.kafka.server.difc.exceptions.{CapabilityException, ClientExist
 
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
-import java.util.ArrayList
 
 /**
  * Logic to handle the various Kafka requests
@@ -874,8 +873,8 @@ class KafkaApis(val requestChannel: RequestChannel,
         batch.producerId(),
         batch.producerEpoch(),
         batch.baseSequence(),
-        batch.isTransactional(),
-        batch.isControlBatch(),
+        batch.isTransactional,
+        batch.isControlBatch,
         batch.partitionLeaderEpoch(),
         estimatedSize
       )
@@ -911,20 +910,46 @@ class KafkaApis(val requestChannel: RequestChannel,
     Set.empty
   }
 
-  private def rebuildHeaders(record: Record, extra: RecordHeader): Array[Header] = {
-    val list = new ArrayList[Header]()
+  private def extractDeclassifyTags(record: Record): Set[String] = {
     val it = record.headers().iterator
     while (it.hasNext) {
       val h = it.next()
-      if (h.key() != "tags")
+      if (h.key() == "declassify" && h.value() != null)
+        return new String(h.value(), StandardCharsets.UTF_8).split(":").toSet
+    }
+    Set.empty
+  }
+
+  private def allowedDeclassifyTags(record: Record,
+                                     senderClientId: String,
+                                     tagRegistrar: TagRegistrar
+                                   ): Set[String] = {
+    val requested = extractDeclassifyTags(record)
+    requested.filter { tag =>
+      val tagId = tagRegistrar.getTag(tag)
+      tagId >= 0 && tagRegistrar.getClient(senderClientId).canRemove(tag)
+    }
+  }
+
+  private def rebuildHeaders(record: Record, extra: RecordHeader): Array[Header] = {
+    val list = new util.ArrayList[Header]()
+    val it = record.headers().iterator
+    while (it.hasNext) {
+      val h = it.next()
+      if (h.key() != "tags" && h.key() != "declassify")
         list.add(new RecordHeader(h.key(), h.value()))
     }
     list.add(extra)
     list.toArray(new Array[Header](list.size()))
   }
 
-  def rewriteTagsInRecords(records: MemoryRecords, senderTags: Set[String], tagRegistrar: TagRegistrar): MemoryRecords = {
+  def rewriteTagsInRecords(records: MemoryRecords,
+                           senderClientId: String,
+                           senderTags: Set[String],
+                           tagRegistrar: TagRegistrar): MemoryRecords = {
+
     val extraPerRecord = estimatedExtraBytesPerRecord(senderTags)
+
     rewriteRecordsByBatch(records, batch => {
       val count = {
         var c = 0
@@ -935,9 +960,14 @@ class KafkaApis(val requestChannel: RequestChannel,
       batch.sizeInBytes() + (count * extraPerRecord)
     }) { (record, builder) =>
       val messageTags = extractFirstTags(record).filter(tagRegistrar.getTag(_) >= 0)
-      val finalTagsBytes = (senderTags ++ messageTags).mkString(":").getBytes(StandardCharsets.UTF_8)
-      info("[DIFC] Final message tags are : " + (senderTags ++ messageTags).toString)
+      val allowedRemovals = allowedDeclassifyTags(record, senderClientId, tagRegistrar)
+      val combinedTags = (senderTags ++ messageTags) -- allowedRemovals
+      val finalTagsBytes = combinedTags.mkString(":").getBytes(StandardCharsets.UTF_8)
+
+      info("[DIFC] Final message tags are : " + combinedTags.toString)
+
       val newHeaders = rebuildHeaders(record, new RecordHeader("tags", finalTagsBytes))
+
       builder.append(
         record.timestamp(),
         record.key(),
@@ -996,7 +1026,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       // We cast the type to avoid causing big change to code base.
       // https://issues.apache.org/jira/browse/KAFKA-10698
       val memoryRecords = partition.records.asInstanceOf[MemoryRecords]
-      val rewrittenRecords = rewriteTagsInRecords(memoryRecords, senderClientTags.asScala, tagRegistrar)
+      val rewrittenRecords = rewriteTagsInRecords(memoryRecords, senderClientId, senderClientTags.asScala, tagRegistrar)
       info("Rewritten Records : " + rewrittenRecords.toString)
 
       if (!authorizedTopics.contains(topicPartition.topic))
