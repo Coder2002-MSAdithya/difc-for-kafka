@@ -56,7 +56,7 @@ public class KafkaStreamsDifcClient {
         final String outputTopic = args.length > 2 ? args[2] : "streams-difc-output";
 
         final Properties props = new Properties();
-        props.put(StreamsConfig.APPLICATION_ID_CONFIG, "streams-difc-client-" + UUID.randomUUID());
+        props.put(StreamsConfig.APPLICATION_ID_CONFIG, "streams-difc-client");
         props.put(StreamsConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
         props.put(StreamsConfig.DEFAULT_KEY_SERDE_CLASS_CONFIG, Serdes.StringSerde.class);
         props.put(StreamsConfig.DEFAULT_VALUE_SERDE_CLASS_CONFIG, Serdes.StringSerde.class);

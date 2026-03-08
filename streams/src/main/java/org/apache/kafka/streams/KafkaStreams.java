@@ -1062,7 +1062,7 @@ public class KafkaStreams implements AutoCloseable {
         rocksDBMetricsRecordingService = maybeCreateRocksDBMetricsRecordingService(clientId, applicationConfigs);
 
         // DIFC background sender setup
-        final String difcClientId = clientId + "-difc";
+        final String difcClientId = applicationConfigs.getString(StreamsConfig.APPLICATION_ID_CONFIG);
         final ApiVersions difcApiVersions = new ApiVersions();
         final AdminClientConfig difcAdminConfig = new AdminClientConfig(
                 applicationConfigs.getAdminConfigs(ClientUtils.adminClientId(difcClientId))
