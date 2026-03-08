@@ -87,7 +87,7 @@ public class KafkaStreamsDifcClient {
         });
 
         streams.setUncaughtExceptionHandler((throwable) -> {
-            System.err.printf("Uncaught exception in thread %s\n", throwable.getMessage());
+            System.err.printf("Uncaught exception in thread %s%n", throwable.getMessage());
             streams.close(Duration.ofSeconds(10));
             latch.countDown();
             return null;
