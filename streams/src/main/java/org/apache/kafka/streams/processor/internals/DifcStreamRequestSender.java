@@ -9,6 +9,7 @@ import org.apache.kafka.common.requests.DummyRequest;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.streams.StreamsMetadata;
 import org.slf4j.Logger;
 
 public class DifcStreamRequestSender implements Runnable {
@@ -87,8 +88,13 @@ public class DifcStreamRequestSender implements Runnable {
 
     private Node findReadyNode(final long nowMs) {
         // Reuse streams metadata host state; pick any known alive host, then rely on KafkaClient readiness
+        final Node leastLoadedNode = client.leastLoadedNode(nowMs).node();
+        if (leastLoadedNode != null && client.isReady(leastLoadedNode, nowMs)) {
+            return leastLoadedNode;
+        }
+
         return metadataState.allMetadata().stream()
-                .map(m -> m.hostInfo())
+                .map(StreamsMetadata::hostInfo)
                 .filter(h -> h.host() != null)
                 .map(h -> new Node(-1, h.host(), h.port()))
                 .filter(n -> client.isReady(n, nowMs))

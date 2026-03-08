@@ -19,16 +19,11 @@ package org.apache.kafka.streams;
 import org.apache.kafka.clients.ApiVersions;
 import org.apache.kafka.clients.CommonClientConfigs;
 import org.apache.kafka.clients.DefaultHostResolver;
-import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.*;
 import org.apache.kafka.clients.admin.ListOffsetsResult.ListOffsetsResultInfo;
-import org.apache.kafka.clients.admin.MemberToRemove;
-import org.apache.kafka.clients.admin.RemoveMembersFromConsumerGroupOptions;
-import org.apache.kafka.clients.admin.RemoveMembersFromConsumerGroupResult;
-import org.apache.kafka.clients.admin.internals.AdminBootstrapAddresses;
 import org.apache.kafka.clients.admin.internals.AdminMetadataManager;
 import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.KafkaProducer;
-import org.apache.kafka.clients.producer.ProducerConfig;
 import org.apache.kafka.common.KafkaFuture;
 import org.apache.kafka.common.Metric;
 import org.apache.kafka.common.MetricName;
@@ -199,8 +194,8 @@ public class KafkaStreams implements AutoCloseable {
     private BiConsumer<Throwable, Boolean> streamsUncaughtExceptionHandler;
     private final Object changeThreadCount = new Object();
 
-    private DifcStreamRequestSender difcStreamRequestSender;
-    private Thread difcStreamThread;
+    private final DifcStreamRequestSender difcStreamRequestSender;
+    private final Thread difcStreamThread;
 
     // container states
     /**
@@ -391,6 +386,10 @@ public class KafkaStreams implements AutoCloseable {
         // we need to call the user customized state listener outside the state lock to avoid potential deadlocks
         if (stateListener != null) {
             stateListener.onChange(newState, oldState);
+        }
+
+        if (newState == State.RUNNING && difcStreamThread != null && difcStreamThread.getState() == Thread.State.NEW) {
+            difcStreamThread.start();
         }
 
         return true;
@@ -1065,19 +1064,22 @@ public class KafkaStreams implements AutoCloseable {
         // DIFC background sender setup
         final String difcClientId = clientId + "-difc";
         final ApiVersions difcApiVersions = new ApiVersions();
-        final AdminBootstrapAddresses bootstrapAddresses = AdminBootstrapAddresses.fromConfig(applicationConfigs);
+        final AdminClientConfig difcAdminConfig = new AdminClientConfig(
+                applicationConfigs.getAdminConfigs(ClientUtils.adminClientId(difcClientId))
+        );
+        final java.util.List<java.net.InetSocketAddress> bootstrapAddresses = org.apache.kafka.clients.ClientUtils.parseAndValidateAddresses(difcAdminConfig);
         final AdminMetadataManager difcMetadataManager = new AdminMetadataManager(logContext,
                 applicationConfigs.getLong(StreamsConfig.RETRY_BACKOFF_MS_CONFIG),
                 applicationConfigs.getLong(StreamsConfig.METADATA_MAX_AGE_CONFIG),
-                bootstrapAddresses.usingBootstrapControllers()
+                false
         );
 
-        difcMetadataManager.update(org.apache.kafka.common.Cluster.bootstrap(bootstrapAddresses.addresses()), time.milliseconds());
+        difcMetadataManager.update(org.apache.kafka.common.Cluster.bootstrap(bootstrapAddresses), time.milliseconds());
 
-        final int maxInFlightRequests = applicationConfigs.getInt(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION);
+        final int maxInFlightRequests = 5;
 
         final KafkaClient difcKafkaClient = org.apache.kafka.clients.ClientUtils.createNetworkClient(
-                applicationConfigs,
+                difcAdminConfig,
                 difcClientId,
                 metrics,
                 "streams-difc",
@@ -1094,7 +1096,7 @@ public class KafkaStreams implements AutoCloseable {
         );
 
         difcStreamRequestSender = new DifcStreamRequestSender(logContext, difcKafkaClient, streamsMetadataState, time,
-                            applicationConfigs.getInt(CommonClientConfigs.REQUEST_TIMEOUT_MS_CONFIG),
+                            difcAdminConfig.getInt(CommonClientConfigs.REQUEST_TIMEOUT_MS_CONFIG),
                            applicationConfigs.getLong(StreamsConfig.RETRY_BACKOFF_MS_CONFIG));
         difcStreamThread = KafkaThread.daemon(difcClientId + "-thread", difcStreamRequestSender);
 
@@ -1459,10 +1461,6 @@ public class KafkaStreams implements AutoCloseable {
 
             if (globalStreamThread != null) {
                 globalStreamThread.start();
-            }
-
-            if (difcStreamThread != null) {
-                difcStreamThread.start();
             }
 
             final int numThreads = processStreamThread(StreamThread::start);
