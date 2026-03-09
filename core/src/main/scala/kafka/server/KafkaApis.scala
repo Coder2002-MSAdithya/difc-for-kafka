@@ -402,8 +402,7 @@ class KafkaApis(val requestChannel: RequestChannel,
  * empty labels, capabilities, and ownership sets.
  */
   def handleRegisterClientRequest(request: RequestChannel.Request): Unit = {
-    val req = request.body[RegisterClientRequest]
-    val clientId = req.data.clientId()
+    val clientId = request.context.clientId()
 
     var error: Errors = Errors.NONE
     var errorMessage: String = null
