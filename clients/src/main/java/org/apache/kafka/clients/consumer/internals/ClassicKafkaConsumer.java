@@ -1354,9 +1354,8 @@ public class ClassicKafkaConsumer<K, V> implements ConsumerDelegate<K, V> {
         );
     }
 
-    public RegisterClientResponseData sendRegisterClientRequest(String clientId) {
-        RegisterClientRequestData data =
-                new RegisterClientRequestData().setClientId(clientId);
+    public RegisterClientResponseData sendRegisterClientRequest() {
+        RegisterClientRequestData data = new RegisterClientRequestData();
 
         RegisterClientRequest.Builder builder =
                 new RegisterClientRequest.Builder(data);

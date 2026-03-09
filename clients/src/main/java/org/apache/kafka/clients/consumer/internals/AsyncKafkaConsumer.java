@@ -1832,7 +1832,7 @@ public class AsyncKafkaConsumer<K, V> implements ConsumerDelegate<K, V> {
     }
 
     @Override
-    public RegisterClientResponseData sendRegisterClientRequest(String clientId) {
+    public RegisterClientResponseData sendRegisterClientRequest() {
         return null;
     }
 

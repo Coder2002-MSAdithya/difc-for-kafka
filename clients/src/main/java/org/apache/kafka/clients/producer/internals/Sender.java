@@ -994,10 +994,9 @@ public class Sender implements Runnable {
         );
     }
 
-    public CompletableFuture<RegisterClientResponseData> sendRegisterClientRequest(String clientId)
+    public CompletableFuture<RegisterClientResponseData> sendRegisterClientRequest()
     {
-        RegisterClientRequestData data =
-                new RegisterClientRequestData().setClientId(clientId);
+        RegisterClientRequestData data = new RegisterClientRequestData();
 
         RegisterClientRequest.Builder builder =
                 new RegisterClientRequest.Builder(data);

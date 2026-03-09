@@ -177,7 +177,7 @@ public class DIFCFullFoodDeliveryTest
     {
         try {
             RegisterClientResponseData r =
-                    p.registerClient(clientId);
+                    p.registerClient();
             System.out.println("Registered " + clientId + " -> " + r.errorMessage());
         } catch (Exception e) {
             System.out.println("Register " + clientId + " skipped: " + e.getMessage());

@@ -17,7 +17,7 @@ public class NotificationService {
         );
 
         KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
-        consumer.registerClient("notification-service");
+        consumer.registerClient();
 
         consumer.subscribe(Collections.singletonList(KafkaConfig.TOPIC));
 

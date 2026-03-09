@@ -48,7 +48,7 @@ public class DIFCConsumerTest {
             // --------------------------------------------------
             System.out.println("\n=== 1. Register client ===");
             try {
-                RegisterClientResponseData r = consumer.registerClient("deliverySvc");
+                RegisterClientResponseData r = consumer.registerClient();
                 System.out.println("RegisterClient -> " + r.errorMessage());
             } catch (Exception e) {
                 System.out.println("RegisterClient skipped: " + e.getMessage());

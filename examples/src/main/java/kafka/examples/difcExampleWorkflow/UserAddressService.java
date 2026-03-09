@@ -22,7 +22,7 @@ public class UserAddressService {
 
         KafkaConsumer<String, String> consumer = new KafkaConsumer<>(props);
 
-        consumer.registerClient("user-address-service");
+        consumer.registerClient();
 
         consumer.subscribe(Collections.singletonList(KafkaConfig.TOPIC));
 

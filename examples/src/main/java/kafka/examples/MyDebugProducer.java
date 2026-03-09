@@ -30,7 +30,7 @@ public class MyDebugProducer {
         props.put(ProducerConfig.LINGER_MS_CONFIG, "0");
         KafkaProducer<String, String> producer = new KafkaProducer<>(props);
         ProducerRecord<String, String> rec = new ProducerRecord<>(topic, "k1", "hello-from-intellij-debug");
-        producer.registerClient("debug-client");
+        producer.registerClient();
         while(true)
         {
             Future<RecordMetadata> f = producer.sendWithTags(rec, Set.of("debug", "dummy"));

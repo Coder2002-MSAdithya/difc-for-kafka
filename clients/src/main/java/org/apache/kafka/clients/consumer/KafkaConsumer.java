@@ -1816,7 +1816,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
 
     public DestroyTagResponseData destroyTag(String tagName) {return delegate.sendDestroyTagRequest(tagName);}
 
-    public RegisterClientResponseData registerClient(String tagName) {return delegate.sendRegisterClientRequest(tagName);}
+    public RegisterClientResponseData registerClient() {return delegate.sendRegisterClientRequest();}
 
     public AddTagResponseData addTag(String tagName) {return delegate.sendAddTagRequest(tagName);}
 
@@ -1824,7 +1824,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
 
     public AddClientPrivsResponseData addClientPrivs(String targetClientId, String tagName, Capability capability) {return delegate.sendAddClientPrivsRequest(targetClientId, tagName, byteFrom(capability));}
 
-    public RemoveClientPrivsResponseData removeClientPrivs(String targetCLientId, String tagName, Capability capability) {return delegate.sendRemoveClientPrivsRequest(targetCLientId, tagName, byteFrom(capability));}
+    public RemoveClientPrivsResponseData removeClientPrivs(String targetClientId, String tagName, Capability capability) {return delegate.sendRemoveClientPrivsRequest(targetClientId, tagName, byteFrom(capability));}
 
     public GrantOwnerPrivilegesResponseData grantOwnerPrivs(String targetClientId, String tagName) {return delegate.sendGrantOwnerPrivilegesRequest(targetClientId, tagName);}
 

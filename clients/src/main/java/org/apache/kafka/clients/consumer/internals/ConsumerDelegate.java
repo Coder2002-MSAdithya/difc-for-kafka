@@ -46,7 +46,7 @@ public interface ConsumerDelegate<K, V> extends Consumer<K, V> {
 
     DestroyTagResponseData sendDestroyTagRequest(String tagName);
 
-    RegisterClientResponseData sendRegisterClientRequest(String clientId);
+    RegisterClientResponseData sendRegisterClientRequest();
 
     AddTagResponseData sendAddTagRequest(String tagName);
 

@@ -1572,10 +1572,10 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         return await(sender.sendDestroyTagRequest(tagName), "DestroyTag failed");
     }
 
-    public RegisterClientResponseData registerClient(String clientId)
+    public RegisterClientResponseData registerClient()
     {
         throwIfProducerClosed();
-        return await(sender.sendRegisterClientRequest(clientId), "RegisterClient failed");
+        return await(sender.sendRegisterClientRequest(), "RegisterClient failed");
     }
 
     public AddTagResponseData addTag(String tagName)

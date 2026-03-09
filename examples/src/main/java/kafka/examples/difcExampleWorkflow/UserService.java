@@ -23,7 +23,7 @@ public class UserService {
         // === DIFC BOOTSTRAP ===
         try {
             System.out.println(
-                    producer.registerClient(CLIENT_ID).errorMessage()
+                    producer.registerClient().errorMessage()
             );
 
             // Create tags (idempotent)
