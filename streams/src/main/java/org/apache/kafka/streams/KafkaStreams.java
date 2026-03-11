@@ -388,10 +388,6 @@ public class KafkaStreams implements AutoCloseable {
             stateListener.onChange(newState, oldState);
         }
 
-        if (newState == State.RUNNING && difcStreamThread != null && difcStreamThread.getState() == Thread.State.NEW) {
-            difcStreamThread.start();
-        }
-
         return true;
     }
 
@@ -1095,11 +1091,10 @@ public class KafkaStreams implements AutoCloseable {
                 null
         );
 
-        difcStreamRequestSender = new DifcStreamRequestSender(logContext, difcKafkaClient, streamsMetadataState, time,
+        difcStreamRequestSender = new DifcStreamRequestSender(logContext, difcKafkaClient, time,
                             difcAdminConfig.getInt(CommonClientConfigs.REQUEST_TIMEOUT_MS_CONFIG),
                            applicationConfigs.getLong(StreamsConfig.RETRY_BACKOFF_MS_CONFIG));
         difcStreamThread = KafkaThread.daemon(difcClientId + "-thread", difcStreamRequestSender);
-
     }
 
     private StreamThread createAndAddStreamThread(final long cacheSizePerThread, final int threadIdx) {
@@ -1461,6 +1456,10 @@ public class KafkaStreams implements AutoCloseable {
 
             if (globalStreamThread != null) {
                 globalStreamThread.start();
+            }
+
+            if (difcStreamThread != null) {
+                difcStreamThread.start();
             }
 
             final int numThreads = processStreamThread(StreamThread::start);

@@ -21,10 +21,10 @@ import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.StreamsBuilder;
 import org.apache.kafka.streams.StreamsConfig;
+import org.apache.kafka.streams.errors.StreamsUncaughtExceptionHandler;
 
 import java.time.Duration;
 import java.util.Properties;
-import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 
 /**
@@ -90,7 +90,7 @@ public class KafkaStreamsDifcClient {
             System.err.printf("Uncaught exception in thread %s%n", throwable.getMessage());
             streams.close(Duration.ofSeconds(10));
             latch.countDown();
-            return null;
+            return StreamsUncaughtExceptionHandler.StreamThreadExceptionResponse.SHUTDOWN_CLIENT;
         });
 
         System.out.printf("Starting KafkaStreamsDifcClient with bootstrap=%s, input=%s, output=%s%n",

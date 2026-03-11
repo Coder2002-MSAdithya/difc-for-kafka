@@ -2,13 +2,14 @@ package org.apache.kafka.streams.difc;
 
 import org.apache.kafka.clients.Capability;
 import org.apache.kafka.clients.producer.DifcKafkaProducer;
+import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.common.message.*;
 
 public final class DifcSyncFacade {
 
-    private final DifcKafkaProducer<?, ?> producer;
+    private final KafkaProducer<?, ?> producer;
 
-    public DifcSyncFacade(DifcKafkaProducer<?, ?> producer) {
+    public DifcSyncFacade(KafkaProducer<?, ?> producer) {
         this.producer = producer;
     }
 

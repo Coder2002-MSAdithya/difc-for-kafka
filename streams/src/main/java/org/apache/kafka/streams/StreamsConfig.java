@@ -48,6 +48,7 @@ import org.apache.kafka.streams.internals.UpgradeFromValues;
 import org.apache.kafka.streams.processor.FailOnInvalidTimestamp;
 import org.apache.kafka.streams.processor.TimestampExtractor;
 import org.apache.kafka.streams.processor.assignment.TaskAssignor;
+import org.apache.kafka.streams.processor.internals.DifcKafkaClientSupplier;
 import org.apache.kafka.streams.processor.internals.DefaultKafkaClientSupplier;
 import org.apache.kafka.streams.processor.internals.NoOpProcessorWrapper;
 import org.apache.kafka.streams.processor.internals.StreamsPartitionAssignor;
@@ -1084,7 +1085,7 @@ public class StreamsConfig extends AbstractConfig {
                     DSL_STORE_SUPPLIERS_CLASS_DOC)
             .define(DEFAULT_CLIENT_SUPPLIER_CONFIG,
                     Type.CLASS,
-                    DefaultKafkaClientSupplier.class.getName(),
+                    DifcKafkaClientSupplier.class.getName(),
                     Importance.LOW,
                     DEFAULT_CLIENT_SUPPLIER_DOC)
             .define(LOG_SUMMARY_INTERVAL_MS_CONFIG,

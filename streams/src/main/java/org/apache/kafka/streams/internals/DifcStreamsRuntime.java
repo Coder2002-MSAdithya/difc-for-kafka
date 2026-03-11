@@ -1,23 +1,25 @@
 package org.apache.kafka.streams.internals;
 
 import org.apache.kafka.clients.consumer.DifcKafkaConsumer;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
 import org.apache.kafka.clients.producer.DifcKafkaProducer;
+import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.streams.difc.DifcSyncFacade;
 
 public final class DifcStreamsRuntime {
 
-    private static volatile DifcKafkaProducer<?, ?> producer;
-    private static volatile DifcKafkaConsumer<?, ?> consumer;
+    private static volatile KafkaProducer<?, ?> producer;
+    private static volatile KafkaConsumer<?, ?> consumer;
     private static volatile DifcSyncFacade facade;
 
     private DifcStreamsRuntime() {}
 
-    public static void registerProducer(DifcKafkaProducer<?, ?> p) {
+    public static void registerProducer(KafkaProducer<?, ?> p) {
         producer = p;
         tryInit();
     }
 
-    public static void registerConsumer(DifcKafkaConsumer<?, ?> c) {
+    public static void registerConsumer(KafkaConsumer<?, ?> c) {
         consumer = c;
         tryInit();
     }

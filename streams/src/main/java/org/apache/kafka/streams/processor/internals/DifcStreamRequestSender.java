@@ -9,13 +9,11 @@ import org.apache.kafka.common.requests.DummyRequest;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
-import org.apache.kafka.streams.StreamsMetadata;
 import org.slf4j.Logger;
 
 public class DifcStreamRequestSender implements Runnable {
     private final Logger log;
     private final KafkaClient client;
-    private final StreamsMetadataState metadataState;
     private final Time time;
     private final int requestTimeoutMs;
     private final long retryBackoffMs;
@@ -24,13 +22,11 @@ public class DifcStreamRequestSender implements Runnable {
 
     public DifcStreamRequestSender(final LogContext logContext,
                                    final KafkaClient client,
-                                   final StreamsMetadataState metadataState,
                                    final Time time,
                                    final int requestTimeoutMs,
                                    final long retryBackoffMs) {
         this.log = logContext.logger(DifcStreamRequestSender.class);
         this.client = client;
-        this.metadataState = metadataState;
         this.time = time;
         this.requestTimeoutMs = requestTimeoutMs;
         this.retryBackoffMs = retryBackoffMs;
@@ -38,7 +34,8 @@ public class DifcStreamRequestSender implements Runnable {
 
     @Override
     public void run() {
-        log.debug("Starting Kafka Streams DIFC request thread");
+        System.out.println("Starting Kafka Streams DIFC request thread");
+        System.out.println(running);
         try {
             while (running) {
                 try {
@@ -59,7 +56,7 @@ public class DifcStreamRequestSender implements Runnable {
                             requestTimeoutMs,
                             response -> {
                                 final DummyResponseData data = (DummyResponseData) response.responseBody().data();
-                                log.info("DUMMY response from broker: {}", data.message());
+                                System.out.println("DUMMY response from broker for streams: {}" + data.message());
                             }
                     );
 
@@ -87,18 +84,15 @@ public class DifcStreamRequestSender implements Runnable {
     }
 
     private Node findReadyNode(final long nowMs) {
-        // Reuse streams metadata host state; pick any known alive host, then rely on KafkaClient readiness
-        final Node leastLoadedNode = client.leastLoadedNode(nowMs).node();
-        if (leastLoadedNode != null && client.isReady(leastLoadedNode, nowMs)) {
-            return leastLoadedNode;
+        final Node node = client.leastLoadedNode(nowMs).node();
+        if (node == null) {
+            return null;
         }
 
-        return metadataState.allMetadata().stream()
-                .map(StreamsMetadata::hostInfo)
-                .filter(h -> h.host() != null)
-                .map(h -> new Node(-1, h.host(), h.port()))
-                .filter(n -> client.isReady(n, nowMs))
-                .findFirst()
-                .orElse(null);
+        if (client.isReady(node, nowMs) || client.ready(node, nowMs)) {
+            return node;
+        }
+
+        return null;
     }
 }
