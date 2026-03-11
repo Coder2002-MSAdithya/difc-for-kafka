@@ -1644,7 +1644,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         );
     }
 
-    public GetOwnListResponseData ownedTags()
+    public GetOwnListResponseData getOwnedTags()
     {
         throwIfProducerClosed();
         return await(
