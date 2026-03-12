@@ -65,4 +65,6 @@ public interface ConsumerDelegate<K, V> extends Consumer<K, V> {
     public GetNegCapsResponseData sendGetNegCapsRequest();
 
     public GetOwnListResponseData sendGetOwnListRequest();
+
+    public DummyResponseData sendDummyRequest();
 }

@@ -1828,6 +1828,8 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
 
     public GrantOwnerPrivilegesResponseData grantOwnerPrivs(String targetClientId, String tagName) {return delegate.sendGrantOwnerPrivilegesRequest(targetClientId, tagName);}
 
+    public DummyResponseData dummyRequest() {return delegate.sendDummyRequest();}
+
     /**
      * Wakeup the consumer. This method is thread-safe and is useful in particular to abort a long poll.
      * The thread which is blocking in an operation will throw {@link org.apache.kafka.common.errors.WakeupException}.

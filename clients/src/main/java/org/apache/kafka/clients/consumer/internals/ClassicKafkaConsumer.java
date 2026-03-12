@@ -1520,4 +1520,18 @@ public class ClassicKafkaConsumer<K, V> implements ConsumerDelegate<K, V> {
                 "GetOwnList request failed"
         );
     }
+
+    @Override
+    public DummyResponseData sendDummyRequest()
+    {
+        DummyRequestData data = new DummyRequestData();
+        DummyRequest.Builder builder = new DummyRequest.Builder(data);
+        Timer timer = time.timer(requestTimeoutMs);
+        return sendCustomRequestAndWait(
+                builder,
+                DummyResponseData.class,
+                timer,
+                "Dummy request failed"
+        );
+    }
 }

@@ -1822,58 +1822,75 @@ public class AsyncKafkaConsumer<K, V> implements ConsumerDelegate<K, V> {
     }
 
     @Override
-    public CreateTagResponseData sendCreateTagRequest(String tagName) {
+    public CreateTagResponseData sendCreateTagRequest(String tagName)
+    {
         return null;
     }
 
     @Override
-    public DestroyTagResponseData sendDestroyTagRequest(String tagName) {
+    public DestroyTagResponseData sendDestroyTagRequest(String tagName)
+    {
         return null;
     }
 
     @Override
-    public RegisterClientResponseData sendRegisterClientRequest() {
+    public RegisterClientResponseData sendRegisterClientRequest()
+    {
         return null;
     }
 
     @Override
-    public AddTagResponseData sendAddTagRequest(String tagName) {
+    public AddTagResponseData sendAddTagRequest(String tagName)
+    {
         return null;
     }
 
     @Override
-    public RemoveTagResponseData sendRemoveTagRequest(String tagName) {
+    public RemoveTagResponseData sendRemoveTagRequest(String tagName)
+    {
         return null;
     }
 
     @Override
-    public AddClientPrivsResponseData sendAddClientPrivsRequest(String targetClientId, String tagName, byte capability) {
+    public AddClientPrivsResponseData sendAddClientPrivsRequest(String targetClientId, String tagName, byte capability)
+    {
         return null;
     }
 
     @Override
-    public RemoveClientPrivsResponseData sendRemoveClientPrivsRequest(String targetClientId, String tagName, byte capability) {
+    public RemoveClientPrivsResponseData sendRemoveClientPrivsRequest(String targetClientId, String tagName, byte capability)
+    {
         return null;
     }
 
     @Override
-    public GrantOwnerPrivilegesResponseData sendGrantOwnerPrivilegesRequest(String targetClientId, String tagName) {
+    public GrantOwnerPrivilegesResponseData sendGrantOwnerPrivilegesRequest(String targetClientId, String tagName)
+    {
         return null;
     }
 
-    public GetLabelResponseData sendGetLabelRequest() {
+    public GetLabelResponseData sendGetLabelRequest()
+    {
         return null;
     }
 
-    public GetPosCapsResponseData sendGetPosCapsRequest() {
+    public GetPosCapsResponseData sendGetPosCapsRequest()
+    {
         return null;
     }
 
-    public GetNegCapsResponseData sendGetNegCapsRequest() {
+    public GetNegCapsResponseData sendGetNegCapsRequest()
+    {
         return null;
     }
 
-    public GetOwnListResponseData sendGetOwnListRequest() {
+    public GetOwnListResponseData sendGetOwnListRequest()
+    {
+        return null;
+    }
+
+    public DummyResponseData sendDummyRequest()
+    {
         return null;
     }
 
