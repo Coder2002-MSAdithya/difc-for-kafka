@@ -47,6 +47,11 @@ import java.util.Map;
 import java.util.OptionalLong;
 import java.util.Properties;
 import java.util.Set;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 
 import static org.apache.kafka.common.utils.Utils.propsToMap;
@@ -534,8 +539,13 @@ import static org.apache.kafka.common.utils.Utils.propsToMap;
 public class KafkaConsumer<K, V> implements Consumer<K, V> {
 
     private static final ConsumerDelegateCreator CREATOR = new ConsumerDelegateCreator();
+    private static final long DIFC_DUMMY_THREAD_INTERVAL_MS = 1_000L;
+
+
 
     private final ConsumerDelegate<K, V> delegate;
+    private final AtomicBoolean difcDummyThreadStarted = new AtomicBoolean(false);
+    private volatile ScheduledExecutorService difcDummyThreadExecutor;
 
     /**
      * A consumer is instantiated by providing a set of key-value pairs as configuration. Valid configuration strings
@@ -608,6 +618,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
 
     KafkaConsumer(ConsumerConfig config, Deserializer<K> keyDeserializer, Deserializer<V> valueDeserializer) {
         delegate = CREATOR.create(config, keyDeserializer, valueDeserializer);
+        maybeStartDifcDummyThread();
     }
 
     KafkaConsumer(LogContext logContext,
@@ -630,6 +641,35 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
             metadata,
             assignors
         );
+        maybeStartDifcDummyThread();
+    }
+
+    private void maybeStartDifcDummyThread() {
+        if (!difcDummyThreadStarted.compareAndSet(false, true)) {
+            return;
+        }
+
+        final ThreadFactory factory = runnable -> {
+            Thread thread = new Thread(runnable, "kafka-consumer-difc-dummy-thread");
+            thread.setDaemon(true);
+            return thread;
+        };
+        difcDummyThreadExecutor = Executors.newSingleThreadScheduledExecutor(factory);
+        difcDummyThreadExecutor.scheduleAtFixedRate(() -> {
+            try {
+                System.out.println(delegate.sendDummyRequest());
+            } catch (Throwable ignored) {
+                // Keep the background DIFC thread alive even if a dummy request fails.
+            }
+        }, 0L, DIFC_DUMMY_THREAD_INTERVAL_MS, TimeUnit.MILLISECONDS);
+    }
+
+    private void shutdownDifcDummyThread() {
+        ScheduledExecutorService executor = difcDummyThreadExecutor;
+        if (executor != null) {
+            executor.shutdownNow();
+            difcDummyThreadExecutor = null;
+        }
     }
 
     /**
@@ -1774,6 +1814,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
      */
     @Override
     public void close() {
+        shutdownDifcDummyThread();
         delegate.close();
     }
 
@@ -1800,7 +1841,9 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
      * @throws org.apache.kafka.common.KafkaException for any other error during close
      */
     @Override
-    public void close(Duration timeout) {
+    public void close(Duration timeout)
+    {
+        shutdownDifcDummyThread();
         delegate.close(timeout);
     }
 
