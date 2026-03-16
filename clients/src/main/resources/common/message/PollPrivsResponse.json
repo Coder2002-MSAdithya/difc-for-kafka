@@ -1,0 +1,22 @@
+{
+  "apiKey": 115,
+  "type": "response",
+  "name": "PollPrivsReqResponse",
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    {
+      "name": "tagName",
+      "type": "string",
+      "versions": "0+",
+      "nullableVersions": "0+",
+      "about": "The privilege tag name."
+    },
+    {
+      "name": "capability",
+      "type": "int8",
+      "versions": "0+",
+      "about": "Capability code (0=CAN_ADD, 1=CAN_REMOVE, -1=none)."
+    }
+  ]
+}
