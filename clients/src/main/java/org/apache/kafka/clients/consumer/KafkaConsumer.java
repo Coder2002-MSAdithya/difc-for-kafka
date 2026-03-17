@@ -618,7 +618,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
 
     KafkaConsumer(ConsumerConfig config, Deserializer<K> keyDeserializer, Deserializer<V> valueDeserializer) {
         delegate = CREATOR.create(config, keyDeserializer, valueDeserializer);
-        maybeStartDifcDummyThread();
+        maybeStartDifcDummyThread(config);
     }
 
     KafkaConsumer(LogContext logContext,
@@ -641,10 +641,14 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
             metadata,
             assignors
         );
-        maybeStartDifcDummyThread();
+        maybeStartDifcDummyThread(config);
     }
 
-    private void maybeStartDifcDummyThread() {
+    private void maybeStartDifcDummyThread(ConsumerConfig config) {
+        if (!config.getBoolean(ConsumerConfig.DIFC_DUMMY_POLLING_ENABLED_CONFIG)) {
+            return;
+        }
+
         if (!difcDummyThreadStarted.compareAndSet(false, true)) {
             return;
         }

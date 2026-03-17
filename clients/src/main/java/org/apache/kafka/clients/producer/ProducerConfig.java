@@ -77,6 +77,10 @@ public class ProducerConfig extends AbstractConfig {
             "time since a topic was last produced to exceeds the metadata idle duration, then the topic's " +
             "metadata is forgotten and the next access to it will force a metadata fetch request.";
 
+    /** <code>difc.dummy.polling.enabled</code> */
+    public static final String DIFC_DUMMY_POLLING_ENABLED_CONFIG = "difc.dummy.polling.enabled";
+    private static final String DIFC_DUMMY_POLLING_ENABLED_DOC = "Enable background DIFC dummy request polling from KafkaProducer.";
+
     /** <code>batch.size</code> */
     public static final String BATCH_SIZE_CONFIG = "batch.size";
     private static final String BATCH_SIZE_DOC = "The producer will attempt to batch records together into fewer requests whenever multiple records are being sent"
@@ -424,6 +428,11 @@ public class ProducerConfig extends AbstractConfig {
                                         atLeast(0),
                                         Importance.MEDIUM,
                                         MAX_BLOCK_MS_DOC)
+                                .define(DIFC_DUMMY_POLLING_ENABLED_CONFIG,
+                                        Type.BOOLEAN,
+                                        false,
+                                        Importance.LOW,
+                                        DIFC_DUMMY_POLLING_ENABLED_DOC)
                                 .define(REQUEST_TIMEOUT_MS_CONFIG,
                                         Type.INT,
                                         30 * 1000,

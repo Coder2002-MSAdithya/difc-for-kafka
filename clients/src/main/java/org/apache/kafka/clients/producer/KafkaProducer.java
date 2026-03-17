@@ -444,9 +444,17 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             this.ioThread = new KafkaThread(ioThreadName, this.sender, true);
             this.ioThread.start();
 
-            this.difcSender = newDifcRequestSender(logContext, this.metadata);
-            this.difcThread = KafkaThread.daemon(difcThreadName, this.difcSender);
-            this.difcThread.start();
+            if (config.getBoolean(ProducerConfig.DIFC_DUMMY_POLLING_ENABLED_CONFIG))
+            {
+                this.difcSender = newDifcRequestSender(logContext, this.metadata);
+                this.difcThread = KafkaThread.daemon(difcThreadName, this.difcSender);
+                this.difcThread.start();
+            }
+            else
+            {
+                this.difcSender = null;
+                this.difcThread = null;
+            }
 
             config.logUnused();
             AppInfoParser.registerAppInfo(JMX_PREFIX, clientId, metrics, time.milliseconds());

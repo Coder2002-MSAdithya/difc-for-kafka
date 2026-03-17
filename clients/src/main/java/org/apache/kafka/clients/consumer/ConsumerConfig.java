@@ -85,6 +85,10 @@ public class ConsumerConfig extends AbstractConfig {
     public static final String GROUP_INSTANCE_ID_CONFIG = CommonClientConfigs.GROUP_INSTANCE_ID_CONFIG;
     private static final String GROUP_INSTANCE_ID_DOC = CommonClientConfigs.GROUP_INSTANCE_ID_DOC;
 
+    /** <code>difc.dummy.polling.enabled</code> */
+    public static final String DIFC_DUMMY_POLLING_ENABLED_CONFIG = "difc.dummy.polling.enabled";
+    private static final String DIFC_DUMMY_POLLING_ENABLED_DOC = "Enable background DIFC dummy request polling from KafkaConsumer.";
+
     /** <code>max.poll.records</code> */
     public static final String MAX_POLL_RECORDS_CONFIG = "max.poll.records";
     private static final String MAX_POLL_RECORDS_DOC = "The maximum number of records returned in a single call to poll()."
@@ -419,6 +423,11 @@ public class ConsumerConfig extends AbstractConfig {
                                         new ConfigDef.NonEmptyString(),
                                         Importance.MEDIUM,
                                         GROUP_INSTANCE_ID_DOC)
+                                .define(DIFC_DUMMY_POLLING_ENABLED_CONFIG,
+                                        Type.BOOLEAN,
+                                        false,
+                                        Importance.MEDIUM,
+                                        DIFC_DUMMY_POLLING_ENABLED_DOC)
                                 .define(SESSION_TIMEOUT_MS_CONFIG,
                                         Type.INT,
                                         45000,
