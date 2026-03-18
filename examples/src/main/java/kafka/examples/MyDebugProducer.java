@@ -18,7 +18,7 @@ public class MyDebugProducer {
     public static void main(String[] args) throws Exception {
         String bootstrap = args.length > 0 ? args[0] : "localhost:9092";
         String topic = args.length > 1 ? args[1] : "debug-topic";
-        int n = 0;
+
         Properties props = new Properties();
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrap);
         props.put(ProducerConfig.CLIENT_ID_CONFIG, "my-debug-producer");
@@ -31,6 +31,7 @@ public class MyDebugProducer {
         KafkaProducer<String, String> producer = new KafkaProducer<>(props);
         ProducerRecord<String, String> rec = new ProducerRecord<>(topic, "k1", "hello-from-intellij-debug");
         producer.registerClient();
+
         while(true)
         {
             Future<RecordMetadata> f = producer.sendWithTags(rec, Set.of("debug", "dummy"));
