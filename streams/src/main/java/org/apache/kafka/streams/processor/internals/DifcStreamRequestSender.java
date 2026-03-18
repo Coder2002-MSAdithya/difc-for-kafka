@@ -56,7 +56,7 @@ public class DifcStreamRequestSender implements Runnable {
                             requestTimeoutMs,
                             response -> {
                                 final DummyResponseData data = (DummyResponseData) response.responseBody().data();
-                                System.out.println("DUMMY response from broker for streams: {}" + data.message());
+                                System.out.println("DUMMY response from broker for streams: " + data.message());
                             }
                     );
 

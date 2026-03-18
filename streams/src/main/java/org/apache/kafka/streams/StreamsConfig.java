@@ -1085,7 +1085,7 @@ public class StreamsConfig extends AbstractConfig {
                     DSL_STORE_SUPPLIERS_CLASS_DOC)
             .define(DEFAULT_CLIENT_SUPPLIER_CONFIG,
                     Type.CLASS,
-                    DifcKafkaClientSupplier.class.getName(),
+                    DefaultKafkaClientSupplier.class.getName(),
                     Importance.LOW,
                     DEFAULT_CLIENT_SUPPLIER_DOC)
             .define(LOG_SUMMARY_INTERVAL_MS_CONFIG,
