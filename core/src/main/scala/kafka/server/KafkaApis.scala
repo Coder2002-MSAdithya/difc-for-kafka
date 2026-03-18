@@ -403,12 +403,18 @@ class KafkaApis(val requestChannel: RequestChannel,
  */
   def handleRegisterClientRequest(request: RequestChannel.Request): Unit = {
     val clientId = request.context.clientId()
+    val difcRequestsTopic = s"__difc_requests_$clientId"
 
     var error: Errors = Errors.NONE
     var errorMessage: String = null
 
     try {
       info("Handling REGISTER_CLIENT request")
+      val existingTopics = metadataCache.getAllTopics()
+      if (!existingTopics.contains(difcRequestsTopic)) {
+        val controllerMutationQuota = quotas.controllerMutation.newPermissiveQuotaFor(request)
+        autoTopicCreationManager.createTopics(Set(difcRequestsTopic), controllerMutationQuota, Some(request.context))
+      }
       tagRegistrar.registerClient(clientId)
       errorMessage = s"Client '$clientId' registered successfully"
     }
