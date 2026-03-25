@@ -1534,4 +1534,34 @@ public class ClassicKafkaConsumer<K, V> implements ConsumerDelegate<K, V> {
                 "Dummy request failed"
         );
     }
+
+    @Override
+    public GrantCapResponseData sendRequestAddCapabilityForTag(final String tagName) {
+        final GrantCapRequestData data = new GrantCapRequestData()
+                .setTagName(tagName)
+                .setCapability(Capability.CAN_ADD.name());
+        final GrantCapRequest.Builder builder = new GrantCapRequest.Builder(data);
+        final Timer timer = time.timer(requestTimeoutMs);
+        return sendCustomRequestAndWait(
+                builder,
+                GrantCapResponseData.class,
+                timer,
+                "GrantCap CAN_ADD request failed"
+        );
+    }
+
+    @Override
+    public GrantCapResponseData sendRequestRemoveCapabilityForTag(final String tagName) {
+        final GrantCapRequestData data = new GrantCapRequestData()
+                .setTagName(tagName)
+                .setCapability(Capability.CAN_REMOVE.name());
+        final GrantCapRequest.Builder builder = new GrantCapRequest.Builder(data);
+        final Timer timer = time.timer(requestTimeoutMs);
+        return sendCustomRequestAndWait(
+                builder,
+                GrantCapResponseData.class,
+                timer,
+                "GrantCap CAN_REMOVE request failed"
+        );
+    }
 }

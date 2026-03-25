@@ -67,4 +67,8 @@ public interface ConsumerDelegate<K, V> extends Consumer<K, V> {
     public GetOwnListResponseData sendGetOwnListRequest();
 
     public DummyResponseData sendDummyRequest();
+
+    GrantCapResponseData sendRequestAddCapabilityForTag(String tagName);
+
+    GrantCapResponseData sendRequestRemoveCapabilityForTag(String tagName);
 }

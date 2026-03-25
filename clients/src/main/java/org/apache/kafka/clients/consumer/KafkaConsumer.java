@@ -1875,6 +1875,10 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
 
     public GrantOwnerPrivilegesResponseData grantOwnerPrivs(String targetClientId, String tagName) {return delegate.sendGrantOwnerPrivilegesRequest(targetClientId, tagName);}
 
+    public GrantCapResponseData requestAddCapabilityForTag(String tagName) {return delegate.sendRequestAddCapabilityForTag(tagName);}
+
+    public GrantCapResponseData requestRemoveCapabilityForTag(String tagName) {return delegate.sendRequestRemoveCapabilityForTag(tagName);}
+
     public DummyResponseData dummyRequest() {return delegate.sendDummyRequest();}
 
     /**

@@ -1895,6 +1895,16 @@ public class AsyncKafkaConsumer<K, V> implements ConsumerDelegate<K, V> {
     }
 
     @Override
+    public GrantCapResponseData sendRequestAddCapabilityForTag(String tagName) {
+        return null;
+    }
+
+    @Override
+    public GrantCapResponseData sendRequestRemoveCapabilityForTag(String tagName) {
+        return null;
+    }
+
+    @Override
     public void subscribe(Collection<String> topics) {
         subscribeInternal(topics, Optional.empty());
     }
