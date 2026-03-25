@@ -19,9 +19,17 @@ package org.apache.kafka.connect.connector;
 import org.apache.kafka.common.config.Config;
 import org.apache.kafka.common.config.ConfigDef;
 import org.apache.kafka.common.config.ConfigValue;
+import org.apache.kafka.common.message.AddTagResponseData;
+import org.apache.kafka.common.message.CreateTagResponseData;
+import org.apache.kafka.common.message.DestroyTagResponseData;
+import org.apache.kafka.common.message.GrantCapResponseData;
+import org.apache.kafka.common.message.RegisterClientResponseData;
+import org.apache.kafka.common.message.RemoveTagResponseData;
+import org.apache.kafka.clients.producer.KafkaProducer;
 import org.apache.kafka.connect.components.Versioned;
 import org.apache.kafka.connect.errors.ConnectException;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -55,6 +63,13 @@ public abstract class Connector implements Versioned {
      */
     public void initialize(ConnectorContext ctx) {
         context = ctx;
+    }
+
+    private KafkaProducer<byte[], byte[]> newDifcProducer(final Map<String, String> connectorConfigs)
+    {
+        final Map<String, Object> producerConfigs = new HashMap<>();
+        producerConfigs.putAll(connectorConfigs);
+        return new KafkaProducer<>(producerConfigs);
     }
 
     /**
@@ -150,4 +165,51 @@ public abstract class Connector implements Versioned {
      * @return The ConfigDef for this connector; may not be null.
      */
     public abstract ConfigDef config();
+
+    /**
+     * Register the current connector principal/client for DIFC requests.
+     */
+    protected RegisterClientResponseData registerClient(final Map<String, String> connectorConfigs) {
+        try (KafkaProducer<byte[], byte[]> producer = newDifcProducer(connectorConfigs)) {
+            return producer.registerClient();
+        }
+    }
+
+    protected CreateTagResponseData createTag(final Map<String, String> connectorConfigs, final String tagName) {
+        try (KafkaProducer<byte[], byte[]> producer = newDifcProducer(connectorConfigs)) {
+            return producer.createTag(tagName);
+        }
+    }
+
+    protected DestroyTagResponseData destroyTag(final Map<String, String> connectorConfigs, final String tagName) {
+        try (KafkaProducer<byte[], byte[]> producer = newDifcProducer(connectorConfigs)) {
+            return producer.destroyTag(tagName);
+        }
+    }
+
+    protected AddTagResponseData addTag(final Map<String, String> connectorConfigs, final String tagName) {
+        try (KafkaProducer<byte[], byte[]> producer = newDifcProducer(connectorConfigs)) {
+            return producer.addTag(tagName);
+        }
+    }
+
+    protected RemoveTagResponseData removeTag(final Map<String, String> connectorConfigs, final String tagName) {
+        try (KafkaProducer<byte[], byte[]> producer = newDifcProducer(connectorConfigs)) {
+            return producer.removeTag(tagName);
+        }
+    }
+
+    protected GrantCapResponseData requestAddCapabilityForTag(final Map<String, String> connectorConfigs,
+                                                              final String tagName) {
+        try (KafkaProducer<byte[], byte[]> producer = newDifcProducer(connectorConfigs)) {
+            return producer.requestAddCapabilityForTag(tagName);
+        }
+    }
+
+    protected GrantCapResponseData requestRemoveCapabilityForTag(final Map<String, String> connectorConfigs,
+                                                                 final String tagName) {
+        try (KafkaProducer<byte[], byte[]> producer = newDifcProducer(connectorConfigs)) {
+            return producer.requestRemoveCapabilityForTag(tagName);
+        }
+    }
 }
