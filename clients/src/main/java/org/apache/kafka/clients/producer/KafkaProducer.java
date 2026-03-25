@@ -1661,6 +1661,24 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         );
     }
 
+    public GrantCapResponseData requestAddCapabilityForTag(final String tagName)
+    {
+        throwIfProducerClosed();
+        return await(
+                sender.sendGrantCapRequest(tagName, Capability.CAN_ADD.name()),
+                "Grant add capability request failed"
+        );
+    }
+
+    public GrantCapResponseData requestRemoveCapabilityForTag(final String tagName)
+    {
+        throwIfProducerClosed();
+        return await(
+                sender.sendGrantCapRequest(tagName, Capability.CAN_REMOVE.name()),
+                "Grant remove capability request failed"
+        );
+    }
+
     private static class ClusterAndWaitTime {
         final Cluster cluster;
         final long waitedOnMetadataMs;

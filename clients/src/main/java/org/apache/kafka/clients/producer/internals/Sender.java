@@ -1155,6 +1155,19 @@ public class Sender implements Runnable {
         );
     }
 
+    public CompletableFuture<GrantCapResponseData> sendGrantCapRequest(final String tagName,
+                                                                       final String capability) {
+        final GrantCapRequestData data = new GrantCapRequestData()
+                .setTagName(tagName)
+                .setCapability(capability);
+        final GrantCapRequest.Builder builder = new GrantCapRequest.Builder(data);
+        return sendDIFCRequest(
+                builder,
+                GrantCapResponseData.class,
+                "No ready broker available for GrantCap request"
+        );
+    }
+
     /**
      * A collection of sensors for the sender
      */
