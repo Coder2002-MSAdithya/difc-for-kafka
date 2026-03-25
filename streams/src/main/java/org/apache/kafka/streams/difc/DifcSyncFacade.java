@@ -59,4 +59,20 @@ public final class DifcSyncFacade {
         return producer.grantOwnerPrivileges(
                 targetClientId, tagName);
     }
+
+    public GetPosCapsResponseData getAddCapabilities() {
+        return producer.getAddCapabilities();
+    }
+
+    public GetNegCapsResponseData getRemoveCapabilities() {
+        return producer.getRemoveCapabilities();
+    }
+
+    public GrantCapResponseData requestAddCapabilityForTag(final String tagName) {
+        return producer.requestAddCapabilityForTag(tagName);
+    }
+
+    public GrantCapResponseData requestRemoveCapabilityForTag(final String tagName) {
+        return producer.requestRemoveCapabilityForTag(tagName);
+    }
 }

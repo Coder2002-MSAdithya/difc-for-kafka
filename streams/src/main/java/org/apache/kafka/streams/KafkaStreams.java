@@ -16,9 +16,7 @@
  */
 package org.apache.kafka.streams;
 
-import org.apache.kafka.clients.ApiVersions;
-import org.apache.kafka.clients.CommonClientConfigs;
-import org.apache.kafka.clients.DefaultHostResolver;
+import org.apache.kafka.clients.*;
 import org.apache.kafka.clients.admin.*;
 import org.apache.kafka.clients.admin.ListOffsetsResult.ListOffsetsResultInfo;
 import org.apache.kafka.clients.admin.internals.AdminMetadataManager;
@@ -31,6 +29,7 @@ import org.apache.kafka.common.TopicPartition;
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.annotation.InterfaceStability.Evolving;
 import org.apache.kafka.common.errors.TimeoutException;
+import org.apache.kafka.common.message.*;
 import org.apache.kafka.common.metrics.KafkaMetricsContext;
 import org.apache.kafka.common.metrics.MetricConfig;
 import org.apache.kafka.common.metrics.Metrics;
@@ -43,6 +42,7 @@ import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Timer;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.streams.difc.StreamsDIFC;
 import org.apache.kafka.streams.errors.InvalidStateStoreException;
 import org.apache.kafka.streams.errors.InvalidStateStorePartitionException;
 import org.apache.kafka.streams.errors.ProcessorStateException;
@@ -80,7 +80,6 @@ import org.apache.kafka.streams.state.HostInfo;
 import org.apache.kafka.streams.state.internals.GlobalStateStoreProvider;
 import org.apache.kafka.streams.state.internals.QueryableStoreProvider;
 import org.apache.kafka.streams.state.internals.StreamThreadStateStoreProvider;
-import org.apache.kafka.clients.KafkaClient;
 import org.apache.kafka.streams.processor.internals.DifcStreamRequestSender;
 import org.apache.kafka.common.utils.KafkaThread;
 
@@ -266,6 +265,79 @@ public class KafkaStreams implements AutoCloseable {
     public boolean isDIFCEnabled() {
         return true;
     }
+
+    /**
+     * Get the DIFC helper bound to this KafkaStreams instance.
+     */
+    public StreamsDIFC difc() {
+        return StreamsDIFC.from(this);
+    }
+
+    public RegisterClientResponseData registerClient() {
+        return difc().registerClient();
+    }
+
+    public CreateTagResponseData createTag(final String tagName) {
+        return difc().createTag(tagName);
+    }
+
+    public DestroyTagResponseData destroyTag(final String tagName) {
+        return difc().destroyTag(tagName);
+    }
+
+    public AddTagResponseData addTag(final String tagName) {
+        return difc().addTag(tagName);
+    }
+
+    public RemoveTagResponseData removeTag(final String tagName) {
+        return difc().removeTag(tagName);
+    }
+
+    public AddClientPrivsResponseData addClientPrivs(final String targetClientId,
+                                                     final String tagName,
+                                                     final Capability capability) {
+        return difc().addClientPrivs(targetClientId, tagName, capability);
+    }
+
+    public RemoveClientPrivsResponseData removeClientPrivs(final String targetClientId,
+                                                           final String tagName,
+                                                           final Capability capability) {
+        return difc().removeClientPrivs(targetClientId, tagName, capability);
+    }
+
+    public GrantOwnerPrivilegesResponseData grantOwnerPrivileges(final String targetClientId,
+                                                                 final String tagName) {
+        return difc().grantOwner(targetClientId, tagName);
+    }
+
+    public GetPosCapsResponseData getAddCapabilities() {
+        return difc().getAddCapabilities();
+    }
+
+    public GetNegCapsResponseData getRemoveCapabilities() {
+        return difc().getRemoveCapabilities();
+    }
+
+    public boolean waitForAddCapability(final String capability,
+                                        final Duration timeout,
+                                        final Duration pollInterval) {
+        return difc().waitForAddCapability(capability, timeout, pollInterval);
+    }
+
+    public boolean waitForRemoveCapability(final String capability,
+                                           final Duration timeout,
+                                           final Duration pollInterval) {
+        return difc().waitForRemoveCapability(capability, timeout, pollInterval);
+    }
+
+    public GrantCapResponseData requestAddCapabilityForTag(final String tagName) {
+        return difc().requestAddCapabilityForTag(tagName);
+    }
+
+    public GrantCapResponseData requestRemoveCapabilityForTag(final String tagName) {
+        return difc().requestRemoveCapabilityForTag(tagName);
+    }
+
 
     public enum State {
         // Note: if you add a new state, check the below methods and how they are used within Streams to see if

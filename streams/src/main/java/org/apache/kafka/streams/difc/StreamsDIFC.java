@@ -5,6 +5,9 @@ import org.apache.kafka.common.message.*;
 import org.apache.kafka.streams.KafkaStreams;
 import org.apache.kafka.streams.internals.DifcStreamsRuntime;
 
+import java.time.Duration;
+import java.util.List;
+
 public final class StreamsDIFC
 {
     private final DifcSyncFacade sync;
@@ -74,6 +77,71 @@ public final class StreamsDIFC
             String tag)
     {
         return sync.grantOwner(targetClientId, tag);
+    }
+
+    public GetPosCapsResponseData getAddCapabilities()
+    {
+        return sync.getAddCapabilities();
+    }
+
+    public GetNegCapsResponseData getRemoveCapabilities()
+    {
+        return sync.getRemoveCapabilities();
+    }
+
+    public GrantCapResponseData requestAddCapabilityForTag(final String tagName)
+    {
+        return sync.requestAddCapabilityForTag(tagName);
+    }
+
+    public GrantCapResponseData requestRemoveCapabilityForTag(final String tagName)
+    {
+        return sync.requestRemoveCapabilityForTag(tagName);
+    }
+
+    public boolean waitForAddCapability(
+            final String capability,
+            final Duration timeout,
+            final Duration pollInterval)
+    {
+        return waitForCapability(capability, timeout, pollInterval, true);
+    }
+
+    public boolean waitForRemoveCapability(
+            final String capability,
+            final Duration timeout,
+            final Duration pollInterval)
+    {
+        return waitForCapability(capability, timeout, pollInterval, false);
+    }
+
+    private boolean waitForCapability(
+            final String capability,
+            final Duration timeout,
+            final Duration pollInterval,
+            final boolean positive)
+    {
+        final long deadlineMs = System.currentTimeMillis() + timeout.toMillis();
+        final long pollMs = Math.max(1L, pollInterval.toMillis());
+
+        while (System.currentTimeMillis() <= deadlineMs) {
+            final List<String> capabilities = positive
+                    ? getAddCapabilities().positiveCapabilities()
+                    : getRemoveCapabilities().negativeCapabilities();
+
+            if (capabilities.contains(capability)) {
+                return true;
+            }
+
+            try {
+                Thread.sleep(pollMs);
+            }
+            catch (final InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return false;
+            }
+        }
+        return false;
     }
 }
 
