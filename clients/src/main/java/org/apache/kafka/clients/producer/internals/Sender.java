@@ -1168,6 +1168,12 @@ public class Sender implements Runnable {
         );
     }
 
+    public CompletableFuture<DummyResponseData> sendDummyRequest() {
+        final  DummyRequestData data = new DummyRequestData();
+        DummyRequest.Builder builder = new DummyRequest.Builder(data);
+        return sendDIFCRequest(builder, DummyResponseData.class, "No ready broker available for Dummy request");
+    }
+
     /**
      * A collection of sensors for the sender
      */

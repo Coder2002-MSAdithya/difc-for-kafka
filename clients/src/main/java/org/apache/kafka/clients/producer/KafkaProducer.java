@@ -1679,6 +1679,15 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         );
     }
 
+    public DummyResponseData dummyRequest()
+    {
+        throwIfProducerClosed();
+        return await(
+                sender.sendDummyRequest(),
+                "DUMMY request failed"
+        );
+    }
+
     private static class ClusterAndWaitTime {
         final Cluster cluster;
         final long waitedOnMetadataMs;
