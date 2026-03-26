@@ -16,3 +16,5 @@
 org.apache.kafka.connect.tools.MockSourceConnector
 org.apache.kafka.connect.tools.SchemaSourceConnector
 org.apache.kafka.connect.tools.VerifiableSourceConnector
+org.apache.kafka.connect.tools.DifcExampleSourceConnector
+org.apache.kafka.connect.tools.VerifiableSourceConnector
