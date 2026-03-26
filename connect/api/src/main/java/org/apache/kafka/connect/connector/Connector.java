@@ -32,6 +32,9 @@ import org.apache.kafka.connect.errors.ConnectException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * <p>
@@ -54,6 +57,12 @@ import java.util.Map;
 public abstract class Connector implements Versioned {
 
     protected ConnectorContext context;
+
+    public static final String DIFC_DUMMY_POLLING_ENABLED_CONFIG = "difc.dummy.polling.enabled";
+    public static final String DIFC_DUMMY_POLLING_INTERVAL_MS_CONFIG = "difc.dummy.polling.interval.ms";
+
+    private static final long DEFAULT_DIFC_DUMMY_POLLING_INTERVAL_MS = 1_000L;
+    private volatile ScheduledExecutorService difcDummyExecutor;
 
 
     /**
@@ -210,6 +219,57 @@ public abstract class Connector implements Versioned {
                                                                  final String tagName) {
         try (KafkaProducer<byte[], byte[]> producer = newDifcProducer(connectorConfigs)) {
             return producer.requestRemoveCapabilityForTag(tagName);
+        }
+    }
+
+    /**
+     * Start a background thread for periodically sending DIFC DUMMY requests when enabled.
+     * Connectors should call this from {@link #start(Map)}.
+     */
+    public synchronized void startDifcDummyPolling(final Map<String, String> connectorConfigs) {
+        stopDifcDummyPolling();
+        if (!Boolean.parseBoolean(connectorConfigs.getOrDefault(DIFC_DUMMY_POLLING_ENABLED_CONFIG, "false"))) {
+            return;
+        }
+
+        final long intervalMs = parseLong(
+                connectorConfigs.get(DIFC_DUMMY_POLLING_INTERVAL_MS_CONFIG),
+                DEFAULT_DIFC_DUMMY_POLLING_INTERVAL_MS
+        );
+
+        difcDummyExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+            final Thread thread = new Thread(r, "kafka-connect-difc-dummy-thread");
+            thread.setDaemon(true);
+            return thread;
+        });
+        difcDummyExecutor.scheduleAtFixedRate(() -> {
+            try (KafkaProducer<byte[], byte[]> producer = newDifcProducer(connectorConfigs)) {
+                producer.dummyRequest();
+            } catch (final Exception ignored) {
+                // Keep polling thread alive; connectors may choose to implement additional logging.
+            }
+        }, 0L, Math.max(1L, intervalMs), TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * Stop the DIFC dummy polling thread if one is running.
+     * Connectors should call this from {@link #stop()}.
+     */
+    public synchronized void stopDifcDummyPolling() {
+        if (difcDummyExecutor != null) {
+            difcDummyExecutor.shutdownNow();
+            difcDummyExecutor = null;
+        }
+    }
+
+    private static long parseLong(final String value, final long fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        try {
+            return Long.parseLong(value);
+        } catch (final NumberFormatException ignored) {
+            return fallback;
         }
     }
 }
