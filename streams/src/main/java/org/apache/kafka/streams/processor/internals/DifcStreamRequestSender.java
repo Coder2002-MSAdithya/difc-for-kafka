@@ -3,9 +3,9 @@ package org.apache.kafka.streams.processor.internals;
 import org.apache.kafka.clients.ClientRequest;
 import org.apache.kafka.clients.KafkaClient;
 import org.apache.kafka.common.Node;
-import org.apache.kafka.common.message.DummyRequestData;
-import org.apache.kafka.common.message.DummyResponseData;
-import org.apache.kafka.common.requests.DummyRequest;
+import org.apache.kafka.common.message.PollPrivsReqRequestData;
+import org.apache.kafka.common.message.PollPrivsReqResponseData;
+import org.apache.kafka.common.requests.PollPrivsReqRequest;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
@@ -47,7 +47,7 @@ public class DifcStreamRequestSender implements Runnable {
                         continue;
                     }
 
-                    final DummyRequest.Builder builder = new DummyRequest.Builder(new DummyRequestData());
+                    final PollPrivsReqRequest.Builder builder = new PollPrivsReqRequest.Builder(new PollPrivsReqRequestData());
                     final ClientRequest request = client.newClientRequest(
                             node.idString(),
                             builder,
@@ -55,15 +55,15 @@ public class DifcStreamRequestSender implements Runnable {
                             true,
                             requestTimeoutMs,
                             response -> {
-                                final DummyResponseData data = (DummyResponseData) response.responseBody().data();
-                                System.out.println("DUMMY response from broker for streams: " + data.message());
+                                final PollPrivsReqResponseData data = (PollPrivsReqResponseData) response.responseBody().data();
+                                System.out.println("POLL_PRIVS_REQ response from broker for streams: tag=" + data.tagName() + ", capability=" + data.capability());
                             }
                     );
 
                     client.send(request, now);
                     client.poll(requestTimeoutMs, now);
                     Utils.sleep(1000);
-                } catch (final Exception e) {
+                } catch (final Throwable e) {
                     log.error("Error in Kafka Streams DIFC request thread", e);
                     Utils.sleep(retryBackoffMs);
                 }
