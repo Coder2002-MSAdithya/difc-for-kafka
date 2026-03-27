@@ -81,6 +81,16 @@ public class ProducerConfig extends AbstractConfig {
     public static final String DIFC_DUMMY_POLLING_ENABLED_CONFIG = "difc.dummy.polling.enabled";
     private static final String DIFC_DUMMY_POLLING_ENABLED_DOC = "Enable background DIFC dummy request polling from KafkaProducer.";
 
+    /** <code>difc.poll.privs.req.enabled</code> */
+    public static final String DIFC_POLL_PRIVS_REQ_ENABLED_CONFIG = "difc.poll.privs.req.enabled";
+    private static final String DIFC_POLL_PRIVS_REQ_ENABLED_DOC = "Enable background DIFC POLL_PRIVS_REQ polling from KafkaProducer.";
+
+    /** <code>difc.poll.privs.req.interval.ms</code> */
+    public static final String DIFC_POLL_PRIVS_REQ_INTERVAL_MS_CONFIG = "difc.poll.privs.req.interval.ms";
+    private static final String DIFC_POLL_PRIVS_REQ_INTERVAL_MS_DOC = "Interval between background DIFC POLL_PRIVS_REQ requests from KafkaProducer.";
+
+
+
     /** <code>batch.size</code> */
     public static final String BATCH_SIZE_CONFIG = "batch.size";
     private static final String BATCH_SIZE_DOC = "The producer will attempt to batch records together into fewer requests whenever multiple records are being sent"
@@ -433,6 +443,17 @@ public class ProducerConfig extends AbstractConfig {
                                         false,
                                         Importance.LOW,
                                         DIFC_DUMMY_POLLING_ENABLED_DOC)
+                                .define(DIFC_POLL_PRIVS_REQ_ENABLED_CONFIG,
+                                        Type.BOOLEAN,
+                                        false,
+                                        Importance.LOW,
+                                        DIFC_DUMMY_POLLING_ENABLED_DOC)
+                                .define(DIFC_POLL_PRIVS_REQ_INTERVAL_MS_CONFIG,
+                                        Type.LONG,
+                                    1000L,
+                                         atLeast(1L),
+                                         Importance.LOW,
+                                        DIFC_POLL_PRIVS_REQ_INTERVAL_MS_DOC)
                                 .define(REQUEST_TIMEOUT_MS_CONFIG,
                                         Type.INT,
                                         30 * 1000,

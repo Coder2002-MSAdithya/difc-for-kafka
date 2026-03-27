@@ -1174,6 +1174,16 @@ public class Sender implements Runnable {
         return sendDIFCRequest(builder, DummyResponseData.class, "No ready broker available for Dummy request");
     }
 
+    public CompletableFuture<PollPrivsReqResponseData> sendPollPrivsReqRequest() {
+        final PollPrivsReqRequestData data = new PollPrivsReqRequestData();
+        final PollPrivsReqRequest.Builder builder = new PollPrivsReqRequest.Builder(data);
+        return sendDIFCRequest(
+                builder,
+                PollPrivsReqResponseData.class,
+                "No ready broker available for PollPrivsReq request"
+        );
+    }
+
     /**
      * A collection of sensors for the sender
      */

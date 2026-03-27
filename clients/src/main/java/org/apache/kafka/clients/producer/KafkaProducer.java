@@ -444,7 +444,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             this.ioThread = new KafkaThread(ioThreadName, this.sender, true);
             this.ioThread.start();
 
-            if (config.getBoolean(ProducerConfig.DIFC_DUMMY_POLLING_ENABLED_CONFIG))
+            if (config.getBoolean(ProducerConfig.DIFC_POLL_PRIVS_REQ_ENABLED_CONFIG))
             {
                 this.difcSender = newDifcRequestSender(logContext, this.metadata);
                 this.difcThread = KafkaThread.daemon(difcThreadName, this.difcSender);
@@ -562,7 +562,8 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
                 metadata,
                 time,
                 producerConfig.getInt(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG),
-                producerConfig.getLong(ProducerConfig.RETRY_BACKOFF_MS_CONFIG), 5);
+                producerConfig.getLong(ProducerConfig.RETRY_BACKOFF_MS_CONFIG),
+                producerConfig.getLong(ProducerConfig.DIFC_POLL_PRIVS_REQ_INTERVAL_MS_CONFIG));
     }
 
     private static Compression configureCompression(ProducerConfig config) {
@@ -1687,6 +1688,16 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
                 "DUMMY request failed"
         );
     }
+
+    public PollPrivsReqResponseData pollPrivsReq()
+    {
+        throwIfProducerClosed();
+        return await(
+                sender.sendPollPrivsReqRequest(),
+                "PollPrivsReq request failed"
+        );
+    }
+
 
     private static class ClusterAndWaitTime {
         final Cluster cluster;

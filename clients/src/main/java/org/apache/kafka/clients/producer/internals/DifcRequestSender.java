@@ -19,9 +19,9 @@ package org.apache.kafka.clients.producer.internals;
 import org.apache.kafka.clients.ClientRequest;
 import org.apache.kafka.clients.KafkaClient;
 import org.apache.kafka.common.Node;
-import org.apache.kafka.common.message.DummyRequestData;
-import org.apache.kafka.common.message.DummyResponseData;
-import org.apache.kafka.common.requests.DummyRequest;
+import org.apache.kafka.common.message.PollPrivsReqRequestData;
+import org.apache.kafka.common.message.PollPrivsReqResponseData;
+import org.apache.kafka.common.requests.PollPrivsReqRequest;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
@@ -42,9 +42,7 @@ public class DifcRequestSender implements Runnable {
     private final Time time;
     private final int requestTimeoutMs;
     private final long retryBackoffMs;
-    private final int warmupRequestTarget;
-    private final CountDownLatch warmupLatch;
-    private final AtomicInteger successfulRequests = new AtomicInteger(0);
+    private final long pollingIntervalMs;
 
     private volatile boolean running = true;
 
@@ -54,15 +52,14 @@ public class DifcRequestSender implements Runnable {
                              Time time,
                              int requestTimeoutMs,
                              long retryBackoffMs,
-                             int warmupRequestTarget) {
+                             long pollingIntervalMs) {
         this.log = logContext.logger(DifcRequestSender.class);
         this.client = client;
         this.metadata = metadata;
         this.time = time;
         this.requestTimeoutMs = requestTimeoutMs;
         this.retryBackoffMs = retryBackoffMs;
-        this.warmupRequestTarget = Math.max(0, warmupRequestTarget);
-        this.warmupLatch = new CountDownLatch(this.warmupRequestTarget);
+        this.pollingIntervalMs = Math.max(1L, pollingIntervalMs);
     }
 
     @Override
@@ -78,7 +75,7 @@ public class DifcRequestSender implements Runnable {
                         continue;
                     }
 
-                    DummyRequest.Builder builder = new DummyRequest.Builder(new DummyRequestData());
+                    PollPrivsReqRequest.Builder builder = new PollPrivsReqRequest.Builder(new PollPrivsReqRequestData());
                     ClientRequest request = client.newClientRequest(
                             node.idString(),
                             builder,
@@ -86,13 +83,8 @@ public class DifcRequestSender implements Runnable {
                             true,
                             requestTimeoutMs,
                             response -> {
-                                DummyResponseData data = (DummyResponseData) response.responseBody().data();
-                                System.out.println("DUMMY response: " + data.message());
-                                int count = successfulRequests.incrementAndGet();
-                                if (warmupLatch.getCount() > 0) {
-                                    warmupLatch.countDown();
-                                }
-                                log.debug("DIFC successful requests so far: {}", count);
+                                PollPrivsReqResponseData data = (PollPrivsReqResponseData) response.responseBody().data();
+                                System.out.println("POLL_PRIVS_REQ response: tag=" + data.tagName() + ", capability=" + data.capability());
                             }
                     );
                     client.send(request, now);
@@ -116,16 +108,6 @@ public class DifcRequestSender implements Runnable {
     public void initiateClose() {
         running = false;
         client.wakeup();
-    }
-
-    public void awaitWarmup(long timeoutMs) throws InterruptedException, TimeoutException {
-        if (warmupRequestTarget == 0)
-            return;
-
-        if (!warmupLatch.await(timeoutMs, TimeUnit.MILLISECONDS)) {
-            throw new TimeoutException("Timed out waiting for " + warmupRequestTarget
-                    + " DIFC requests to be sent. Completed=" + successfulRequests.get());
-        }
     }
 
     private Node findReadyNode(long now) {
