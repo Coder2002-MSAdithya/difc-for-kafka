@@ -214,7 +214,7 @@ public class WorkerConnector implements Runnable {
                 case PAUSED:
                 case STOPPED:
                     connector.start(config);
-                    connector.startDifcDummyPolling(config);
+                    connector.startDifcPollPrivsPolling(config);
                     this.state = State.STARTED;
                     return true;
 
@@ -260,7 +260,7 @@ public class WorkerConnector implements Runnable {
             }
 
             if (state == State.STARTED) {
-                connector.stopDifcDummyPolling();
+                connector.stopDifcPollPrivsPolling();
                 connector.stop();
             }
 
@@ -312,7 +312,7 @@ public class WorkerConnector implements Runnable {
             }
             if (state == State.STARTED)
                 connector.stop();
-            connector.stopDifcDummyPolling();
+            connector.stopDifcPollPrivsPolling();
             this.state = State.STOPPED;
             statusListener.onShutdown(connName);
             log.info("Completed shutdown for {}", this);

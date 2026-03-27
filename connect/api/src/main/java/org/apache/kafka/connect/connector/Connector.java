@@ -58,11 +58,11 @@ public abstract class Connector implements Versioned {
 
     protected ConnectorContext context;
 
-    public static final String DIFC_DUMMY_POLLING_ENABLED_CONFIG = "difc.dummy.polling.enabled";
-    public static final String DIFC_DUMMY_POLLING_INTERVAL_MS_CONFIG = "difc.dummy.polling.interval.ms";
+    public static final String DIFC_POLL_PRIVS_REQ_ENABLED_CONFIG = "difc.poll.privs.req.enabled";
+    public static final String DIFC_POLL_PRIVS_REQ_INTERVAL_MS_CONFIG = "difc.poll.privs.req.interval.ms";
 
-    private static final long DEFAULT_DIFC_DUMMY_POLLING_INTERVAL_MS = 1_000L;
-    private volatile ScheduledExecutorService difcDummyExecutor;
+    private static final long DEFAULT_DIFC_POLL_PRIVS_REQ_INTERVAL_MS = 1_000L;
+    private volatile ScheduledExecutorService difcPollPrivsExecutor;
 
 
     /**
@@ -226,39 +226,43 @@ public abstract class Connector implements Versioned {
      * Start a background thread for periodically sending DIFC DUMMY requests when enabled.
      * Connectors should call this from {@link #start(Map)}.
      */
-    public synchronized void startDifcDummyPolling(final Map<String, String> connectorConfigs) {
-        stopDifcDummyPolling();
-        if (!Boolean.parseBoolean(connectorConfigs.getOrDefault(DIFC_DUMMY_POLLING_ENABLED_CONFIG, "false"))) {
+    /**
+     * Start a background thread for periodically sending DIFC POLL_PRIVS_REQ requests when enabled.
+     * Connectors should call this from {@link #start(Map)}.
+     */
+    public synchronized void startDifcPollPrivsPolling(final Map<String, String> connectorConfigs) {
+        stopDifcPollPrivsPolling();
+        if (!Boolean.parseBoolean(connectorConfigs.getOrDefault(DIFC_POLL_PRIVS_REQ_ENABLED_CONFIG, "false"))) {
             return;
         }
 
         final long intervalMs = parseLong(
-                connectorConfigs.get(DIFC_DUMMY_POLLING_INTERVAL_MS_CONFIG),
-                DEFAULT_DIFC_DUMMY_POLLING_INTERVAL_MS
+                connectorConfigs.get(DIFC_POLL_PRIVS_REQ_INTERVAL_MS_CONFIG),
+                DEFAULT_DIFC_POLL_PRIVS_REQ_INTERVAL_MS
         );
 
-        difcDummyExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
-            final Thread thread = new Thread(r, "kafka-connect-difc-dummy-thread");
+        difcPollPrivsExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
+            final Thread thread = new Thread(r, "kafka-connect-difc-poll-privs-req-thread");
             thread.setDaemon(true);
             return thread;
         });
-        difcDummyExecutor.scheduleAtFixedRate(() -> {
+        difcPollPrivsExecutor.scheduleAtFixedRate(() -> {
             try (KafkaProducer<byte[], byte[]> producer = newDifcProducer(connectorConfigs)) {
-                producer.dummyRequest();
-            } catch (final Exception ignored) {
+                producer.pollPrivsReq();
+            } catch (final Throwable ignored) {
                 // Keep polling thread alive; connectors may choose to implement additional logging.
             }
         }, 0L, Math.max(1L, intervalMs), TimeUnit.MILLISECONDS);
     }
 
     /**
-     * Stop the DIFC dummy polling thread if one is running.
+     * Stop the DIFC POLL_PRIVS_REQ polling thread if one is running.
      * Connectors should call this from {@link #stop()}.
      */
-    public synchronized void stopDifcDummyPolling() {
-        if (difcDummyExecutor != null) {
-            difcDummyExecutor.shutdownNow();
-            difcDummyExecutor = null;
+    public synchronized void stopDifcPollPrivsPolling() {
+        if (difcPollPrivsExecutor != null) {
+            difcPollPrivsExecutor.shutdownNow();
+            difcPollPrivsExecutor = null;
         }
     }
 
