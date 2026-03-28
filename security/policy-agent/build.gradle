@@ -12,6 +12,9 @@ repositories {
 dependencies {
     implementation 'net.bytebuddy:byte-buddy:1.14.18'
     implementation 'net.bytebuddy:byte-buddy-agent:1.14.18'
+    // Needed because byte-buddy classes reference edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
+    // with -Werror enabled, missing annotation types become hard compilation failures.
+    compileOnly 'com.github.spotbugs:spotbugs-annotations:4.8.6'
 }
 
 java {
@@ -21,6 +24,14 @@ java {
 }
 
 tasks.jar {
+    // Build a self-contained javaagent jar so -javaagent works without manually adding byte-buddy jars
+    // to the application classpath.
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    exclude 'META-INF/*.RSA', 'META-INF/*.SF', 'META-INF/*.DSA'
+
     manifest {
         attributes(
                 'Premain-Class': 'org.apache.kafka.security.agent.PolicyAgent',
