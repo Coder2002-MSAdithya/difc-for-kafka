@@ -24,12 +24,18 @@ java {
 }
 
 tasks.jar {
-    // Build a self-contained javaagent jar so -javaagent works without manually adding byte-buddy jars
-    // to the application classpath.
-    from {
-        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
-    }
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    // ✅ FIRST include your compiled classes explicitly
+    from(sourceSets.main.output)
+
+    // ✅ THEN include dependencies (fat jar)
+    from {
+        configurations.runtimeClasspath.collect {
+            it.isDirectory() ? it : zipTree(it)
+        }
+    }
+
     exclude 'META-INF/*.RSA', 'META-INF/*.SF', 'META-INF/*.DSA'
 
     manifest {
