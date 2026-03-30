@@ -1,7 +1,7 @@
 package org.apache.kafka.security.agent;
 
 import net.bytebuddy.asm.Advice;
-import org.apache.kafka.security.agent.bootstrap.SocketPolicyBootstrap;
+import org.apache.kafka.security.agent.bootstrap.internal.SocketPolicyBootstrap;
 
 public class KafkaEntrypointAdvice {
 

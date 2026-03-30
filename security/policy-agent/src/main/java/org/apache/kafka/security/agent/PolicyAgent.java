@@ -6,7 +6,6 @@ import net.bytebuddy.matcher.ElementMatchers;
 
 import net.bytebuddy.dynamic.loading.ClassInjector;
 import net.bytebuddy.description.type.TypeDescription;
-import net.bytebuddy.utility.RandomString;
 import net.bytebuddy.dynamic.ClassFileLocator;
 
 import java.io.File;
@@ -25,7 +24,7 @@ public final class PolicyAgent {
         try {
             File temp = Files.createTempDirectory("bb-bootstrap").toFile();
 
-            // ---- FORCE bootstrap injection ----
+            // ---- Inject bootstrap class ----
             ClassInjector injector =
                     ClassInjector.UsingInstrumentation.of(
                             temp,
@@ -33,19 +32,29 @@ public final class PolicyAgent {
                             instrumentation
                     );
 
-            byte[] bootstrapBytes =
-                    ClassFileLocator.ForClassLoader.read(
-                            org.apache.kafka.security.agent.bootstrap.SocketPolicyBootstrap.class
-                    );
+            Map<TypeDescription, byte[]> toInject = new java.util.HashMap<>();
 
-            injector.inject(
-                    Map.of(
-                            TypeDescription.ForLoadedType.of(
-                                    org.apache.kafka.security.agent.bootstrap.SocketPolicyBootstrap.class
-                            ),
-                            bootstrapBytes
-                    )
-            );
+            // ---- Bootstrap policy class ----
+                        toInject.put(
+                                TypeDescription.ForLoadedType.of(
+                                        org.apache.kafka.security.agent.bootstrap.internal.SocketPolicyBootstrap.class
+                                ),
+                                ClassFileLocator.ForClassLoader.read(
+                                        org.apache.kafka.security.agent.bootstrap.internal.SocketPolicyBootstrap.class
+                                )
+                        );
+
+            // ---- 🔥 ALSO inject SocketAdvice ----
+                        toInject.put(
+                                TypeDescription.ForLoadedType.of(
+                                        org.apache.kafka.security.agent.SocketAdvice.class
+                                ),
+                                ClassFileLocator.ForClassLoader.read(
+                                        org.apache.kafka.security.agent.SocketAdvice.class
+                                )
+                        );
+
+            injector.inject(toInject);
 
             // ---- AgentBuilder ----
             AgentBuilder builder = new AgentBuilder.Default()
@@ -55,7 +64,8 @@ public final class PolicyAgent {
                     .with(AgentBuilder.RedefinitionStrategy.RETRANSFORMATION)
                     .with(AgentBuilder.Listener.StreamWriting.toSystemError().withErrorsOnly());
 
-            // ---- Socket enforcement ----
+            // ================= SOCKET ENFORCEMENT =================
+
             builder = builder
 
                     // java.net.Socket
@@ -65,19 +75,17 @@ public final class PolicyAgent {
                                     .on(ElementMatchers.named("connect")))
                     )
 
-                    // SocketChannel (API layer)
+                    // SocketChannel
                     .type(ElementMatchers.named("java.nio.channels.SocketChannel"))
                     .transform((b, td, cl, module, pd) ->
                             b.visit(Advice.to(SocketAdvice.SocketConnectAdvice.class)
                                             .on(ElementMatchers.named("connect")))
                                     .visit(Advice.to(SocketAdvice.SocketNoArgAdvice.class)
-                                            .on(
-                                                    ElementMatchers.named("finishConnect")
-                                                            .or(ElementMatchers.named("open"))
-                                            ))
+                                            .on(ElementMatchers.named("finishConnect")
+                                                    .or(ElementMatchers.named("open"))))
                     )
 
-                    // SocketChannelImpl (actual JDK implementation)
+                    // SocketChannelImpl
                     .type(ElementMatchers.named("sun.nio.ch.SocketChannelImpl"))
                     .transform((b, td, cl, module, pd) ->
                             b.visit(Advice.to(SocketAdvice.SocketConnectAdvice.class)
@@ -86,22 +94,50 @@ public final class PolicyAgent {
                                             .on(ElementMatchers.named("finishConnect")))
                     );
 
-            // ---- Kafka entrypoints ----
+            // ================= KAFKA ENTRYPOINTS =================
+
             builder = builder
                     .type(ElementMatchers.nameStartsWith("org.apache.kafka.clients.producer.KafkaProducer"))
                     .transform((b, td, cl, module, pd) ->
                             b.visit(Advice.to(SocketAdvice.KafkaEntrypointAdvice.class)
                                     .on(ElementMatchers.named("send")))
-                    )
-                    .type(ElementMatchers.nameStartsWith("org.apache.kafka.clients.consumer.KafkaConsumer"))
+                    );
+
+            // ================= KAFKA NETWORK HOOK =================
+
+            builder = builder
+                    .type(ElementMatchers.named("org.apache.kafka.clients.NetworkClient"))
                     .transform((b, td, cl, module, pd) ->
-                            b.visit(Advice.to(SocketAdvice.KafkaEntrypointAdvice.class)
-                                    .on(ElementMatchers.named("poll")))
-                    )
-                    .type(ElementMatchers.nameStartsWith("org.apache.kafka.streams.KafkaStreams"))
+                            b.visit(Advice.to(SocketAdvice.KafkaNetworkAdvice.class)
+                                    .on(ElementMatchers.named("initiateConnect")
+                                            .and(ElementMatchers.takesArguments(2))))
+                    );
+
+            // ================= UDP ENFORCEMENT =================
+            builder = builder
+
+                    // ---- java.net.DatagramSocket ----
+                    .type(ElementMatchers.named("java.net.DatagramSocket"))
                     .transform((b, td, cl, module, pd) ->
-                            b.visit(Advice.to(SocketAdvice.KafkaEntrypointAdvice.class)
-                                    .on(ElementMatchers.named("start")))
+                            b.visit(Advice.to(SocketAdvice.SocketConnectAdvice.class)
+                                    .on(ElementMatchers.named("send")
+                                            .or(ElementMatchers.named("connect"))))
+                    )
+
+                    // ---- DatagramChannel ----
+                    .type(ElementMatchers.named("java.nio.channels.DatagramChannel"))
+                    .transform((b, td, cl, module, pd) ->
+                            b.visit(Advice.to(SocketAdvice.SocketConnectAdvice.class)
+                                    .on(ElementMatchers.named("send")
+                                            .or(ElementMatchers.named("connect"))))
+                    )
+
+                    // ---- Internal implementation ----
+                    .type(ElementMatchers.named("sun.nio.ch.DatagramChannelImpl"))
+                    .transform((b, td, cl, module, pd) ->
+                            b.visit(Advice.to(SocketAdvice.SocketConnectAdvice.class)
+                                    .on(ElementMatchers.named("send")
+                                            .or(ElementMatchers.named("connect"))))
                     );
 
             builder.installOn(instrumentation);
