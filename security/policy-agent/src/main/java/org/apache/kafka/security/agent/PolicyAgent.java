@@ -55,26 +55,29 @@ public final class PolicyAgent {
                     .with(AgentBuilder.RedefinitionStrategy.RETRANSFORMATION)
                     .with(AgentBuilder.Listener.StreamWriting.toSystemError().withErrorsOnly());
 
+            // ---- Socket enforcement ----
             builder = builder
 
-                    // ---- Socket ----
+                    // java.net.Socket
                     .type(ElementMatchers.named("java.net.Socket"))
                     .transform((b, td, cl, module, pd) ->
                             b.visit(Advice.to(SocketAdvice.SocketConnectAdvice.class)
                                     .on(ElementMatchers.named("connect")))
                     )
 
-                    // ---- SocketChannel ----
+                    // SocketChannel (API layer)
                     .type(ElementMatchers.named("java.nio.channels.SocketChannel"))
                     .transform((b, td, cl, module, pd) ->
                             b.visit(Advice.to(SocketAdvice.SocketConnectAdvice.class)
                                             .on(ElementMatchers.named("connect")))
                                     .visit(Advice.to(SocketAdvice.SocketNoArgAdvice.class)
-                                            .on(ElementMatchers.named("finishConnect")
-                                                    .or(ElementMatchers.named("open"))))
+                                            .on(
+                                                    ElementMatchers.named("finishConnect")
+                                                            .or(ElementMatchers.named("open"))
+                                            ))
                     )
 
-                    // ---- SocketChannelImpl (REAL implementation) ----
+                    // SocketChannelImpl (actual JDK implementation)
                     .type(ElementMatchers.named("sun.nio.ch.SocketChannelImpl"))
                     .transform((b, td, cl, module, pd) ->
                             b.visit(Advice.to(SocketAdvice.SocketConnectAdvice.class)

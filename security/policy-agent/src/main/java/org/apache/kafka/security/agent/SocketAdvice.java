@@ -6,7 +6,7 @@ import org.apache.kafka.security.agent.bootstrap.SocketPolicyBootstrap;
 
 public class SocketAdvice {
 
-    // ✅ For methods WITH arguments
+    // ---- methods WITH arguments ----
     public static class SocketConnectAdvice {
 
         @Advice.OnMethodEnter
@@ -15,7 +15,7 @@ public class SocketAdvice {
         }
     }
 
-    // ✅ For methods WITHOUT arguments
+    // ---- methods WITHOUT arguments ----
     public static class SocketNoArgAdvice {
 
         @Advice.OnMethodEnter
@@ -24,7 +24,7 @@ public class SocketAdvice {
         }
     }
 
-    // ---- Kafka entrypoint ----
+    // ---- Kafka entrypoint marking ----
     public static class KafkaEntrypointAdvice {
 
         @Advice.OnMethodEnter

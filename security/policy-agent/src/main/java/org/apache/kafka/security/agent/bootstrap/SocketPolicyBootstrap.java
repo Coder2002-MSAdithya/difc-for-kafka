@@ -4,12 +4,12 @@ import java.net.InetSocketAddress;
 
 public final class SocketPolicyBootstrap {
 
-    private static final ThreadLocal<Boolean> TRUSTED =
-            ThreadLocal.withInitial(() -> false);
+    // ✅ NO anonymous class → no $1 class generated
+    private static final InheritableThreadLocal<Boolean> TRUSTED =
+            new InheritableThreadLocal<>();
 
     private SocketPolicyBootstrap() {}
 
-    // ---- trusted context ----
     public static void enterTrusted() {
         TRUSTED.set(true);
     }
@@ -18,28 +18,26 @@ public final class SocketPolicyBootstrap {
         TRUSTED.set(false);
     }
 
-    private static boolean hasTrustedCallStack() {
+    private static boolean isKafkaInternalCall() {
         return StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE)
                 .walk(frames ->
                         frames.map(StackWalker.StackFrame::getDeclaringClass)
                                 .anyMatch(c ->
-                                        c.getName().startsWith("org.apache.kafka.clients.producer.KafkaProducer") ||
-                                                c.getName().startsWith("org.apache.kafka.clients.consumer.KafkaConsumer") ||
-                                                c.getName().startsWith("org.apache.kafka.streams.KafkaStreams")
+                                        c.getName().startsWith("org.apache.kafka.clients")
                                 )
                 );
     }
 
-    // ---- enforcement ----
-    public static void validate(Object endpoint)
-    {
-        if (!Boolean.TRUE.equals(TRUSTED.get())) {
+    public static void validate(Object endpoint) {
+
+        boolean trusted = Boolean.TRUE.equals(TRUSTED.get());
+
+        if (!trusted && !isKafkaInternalCall()) {
             throw new SecurityException(
                     "[policy-agent] DENY: socket connect outside Kafka trusted context"
             );
         }
 
-        // Optional: only check port if endpoint exists
         if (endpoint instanceof InetSocketAddress) {
             int port = ((InetSocketAddress) endpoint).getPort();
 
