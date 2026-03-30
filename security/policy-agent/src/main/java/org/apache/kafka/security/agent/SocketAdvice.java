@@ -31,6 +31,16 @@ public class SocketAdvice {
         }
     }
 
+    public static void validateBind(Object endpoint) {
+        try {
+            getBootstrapClass()
+                    .getMethod("validateBind", Object.class)
+                    .invoke(null, endpoint);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     public static void enterTrusted() {
         try {
             getBootstrapClass()
@@ -81,6 +91,15 @@ public class SocketAdvice {
         public static void enter() {
             System.err.println("[policy-agent] ENTER NetworkClient.initiateConnect");
             enterTrusted();
+        }
+    }
+
+    public static class SocketBindAdvice {
+
+        @Advice.OnMethodEnter
+        public static void onEnter(@Advice.AllArguments Object[] args) {
+            Object endpoint = (args != null && args.length > 0) ? args[0] : null;
+            validateBind(endpoint);
         }
     }
 }

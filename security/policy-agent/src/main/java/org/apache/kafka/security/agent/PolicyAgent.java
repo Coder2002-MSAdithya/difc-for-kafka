@@ -17,14 +17,41 @@ public final class PolicyAgent {
 
     private PolicyAgent() {}
 
-    public static void premain(String args, Instrumentation instrumentation) {
+    // 🔐 Mode is now private
+    public enum Mode {
+        DEV,
+        PROD
+    }
 
+    private static Mode MODE = Mode.DEV;
+
+    public static Mode getMode()
+    {
+        return MODE;
+    }
+
+    public static void premain(String args, Instrumentation instrumentation)
+    {
         System.err.println("[policy-agent] premain loaded. args=" + args);
 
-        try {
+        try
+        {
+            // ================= MODE PARSING =================
+            if (args != null && args.contains("mode=prod"))
+            {
+                MODE = Mode.PROD;
+            }
+            else
+            {
+                MODE = Mode.DEV;
+            }
+
+            System.err.println("[policy-agent] MODE = " + MODE);
+
+            // ================= BOOTSTRAP INJECTION =================
+
             File temp = Files.createTempDirectory("bb-bootstrap").toFile();
 
-            // ---- Inject bootstrap class ----
             ClassInjector injector =
                     ClassInjector.UsingInstrumentation.of(
                             temp,
@@ -35,28 +62,39 @@ public final class PolicyAgent {
             Map<TypeDescription, byte[]> toInject = new java.util.HashMap<>();
 
             // ---- Bootstrap policy class ----
-                        toInject.put(
-                                TypeDescription.ForLoadedType.of(
-                                        org.apache.kafka.security.agent.bootstrap.internal.SocketPolicyBootstrap.class
-                                ),
-                                ClassFileLocator.ForClassLoader.read(
-                                        org.apache.kafka.security.agent.bootstrap.internal.SocketPolicyBootstrap.class
-                                )
-                        );
+            toInject.put(
+                    TypeDescription.ForLoadedType.of(
+                            org.apache.kafka.security.agent.bootstrap.internal.SocketPolicyBootstrap.class
+                    ),
+                    ClassFileLocator.ForClassLoader.read(
+                            org.apache.kafka.security.agent.bootstrap.internal.SocketPolicyBootstrap.class
+                    )
+            );
 
-            // ---- 🔥 ALSO inject SocketAdvice ----
-                        toInject.put(
-                                TypeDescription.ForLoadedType.of(
-                                        org.apache.kafka.security.agent.SocketAdvice.class
-                                ),
-                                ClassFileLocator.ForClassLoader.read(
-                                        org.apache.kafka.security.agent.SocketAdvice.class
-                                )
-                        );
+            // ---- ALSO inject SocketAdvice ----
+            toInject.put(
+                    TypeDescription.ForLoadedType.of(
+                            org.apache.kafka.security.agent.SocketAdvice.class
+                    ),
+                    ClassFileLocator.ForClassLoader.read(
+                            org.apache.kafka.security.agent.SocketAdvice.class
+                    )
+            );
 
             injector.inject(toInject);
 
-            // ---- AgentBuilder ----
+            // ================= PASS MODE TO BOOTSTRAP =================
+            Class<?> bootstrap =
+                    Class.forName(
+                            "org.apache.kafka.security.agent.bootstrap.internal.SocketPolicyBootstrap",
+                            true,
+                            null // bootstrap classloader
+                    );
+
+            bootstrap.getMethod("setMode", String.class)
+                    .invoke(null, MODE.name());
+
+            // ================= AGENT BUILDER =================
             AgentBuilder builder = new AgentBuilder.Default()
                     .with(new AgentBuilder.InjectionStrategy.UsingInstrumentation(instrumentation, temp))
                     .ignore(ElementMatchers.none())
@@ -67,14 +105,12 @@ public final class PolicyAgent {
             // ================= SOCKET ENFORCEMENT =================
 
             builder = builder
-
                     // java.net.Socket
                     .type(ElementMatchers.named("java.net.Socket"))
                     .transform((b, td, cl, module, pd) ->
                             b.visit(Advice.to(SocketAdvice.SocketConnectAdvice.class)
                                     .on(ElementMatchers.named("connect")))
                     )
-
                     // SocketChannel
                     .type(ElementMatchers.named("java.nio.channels.SocketChannel"))
                     .transform((b, td, cl, module, pd) ->
@@ -84,7 +120,6 @@ public final class PolicyAgent {
                                             .on(ElementMatchers.named("finishConnect")
                                                     .or(ElementMatchers.named("open"))))
                     )
-
                     // SocketChannelImpl
                     .type(ElementMatchers.named("sun.nio.ch.SocketChannelImpl"))
                     .transform((b, td, cl, module, pd) ->
@@ -95,7 +130,6 @@ public final class PolicyAgent {
                     );
 
             // ================= KAFKA ENTRYPOINTS =================
-
             builder = builder
                     .type(ElementMatchers.nameStartsWith("org.apache.kafka.clients.producer.KafkaProducer"))
                     .transform((b, td, cl, module, pd) ->
@@ -104,7 +138,6 @@ public final class PolicyAgent {
                     );
 
             // ================= KAFKA NETWORK HOOK =================
-
             builder = builder
                     .type(ElementMatchers.named("org.apache.kafka.clients.NetworkClient"))
                     .transform((b, td, cl, module, pd) ->
@@ -114,25 +147,20 @@ public final class PolicyAgent {
                     );
 
             // ================= UDP ENFORCEMENT =================
-            builder = builder
 
-                    // ---- java.net.DatagramSocket ----
+            builder = builder
                     .type(ElementMatchers.named("java.net.DatagramSocket"))
                     .transform((b, td, cl, module, pd) ->
                             b.visit(Advice.to(SocketAdvice.SocketConnectAdvice.class)
                                     .on(ElementMatchers.named("send")
                                             .or(ElementMatchers.named("connect"))))
                     )
-
-                    // ---- DatagramChannel ----
                     .type(ElementMatchers.named("java.nio.channels.DatagramChannel"))
                     .transform((b, td, cl, module, pd) ->
                             b.visit(Advice.to(SocketAdvice.SocketConnectAdvice.class)
                                     .on(ElementMatchers.named("send")
                                             .or(ElementMatchers.named("connect"))))
                     )
-
-                    // ---- Internal implementation ----
                     .type(ElementMatchers.named("sun.nio.ch.DatagramChannelImpl"))
                     .transform((b, td, cl, module, pd) ->
                             b.visit(Advice.to(SocketAdvice.SocketConnectAdvice.class)
@@ -140,12 +168,42 @@ public final class PolicyAgent {
                                             .or(ElementMatchers.named("connect"))))
                     );
 
-            builder.installOn(instrumentation);
+            // ================= LISTEN / BIND ENFORCEMENT =================
+            builder = builder
+                    .type(ElementMatchers.named("java.net.ServerSocket"))
+                    .transform((b, td, cl, module, pd) ->
+                            b.visit(Advice.to(SocketAdvice.SocketBindAdvice.class)
+                                    .on(ElementMatchers.named("bind")))
+                    )
+                    .type(ElementMatchers.named("java.nio.channels.ServerSocketChannel"))
+                    .transform((b, td, cl, module, pd) ->
+                            b.visit(Advice.to(SocketAdvice.SocketBindAdvice.class)
+                                    .on(ElementMatchers.named("bind")))
+                    )
+                    .type(ElementMatchers.named("sun.nio.ch.ServerSocketChannelImpl"))
+                    .transform((b, td, cl, module, pd) ->
+                            b.visit(Advice.to(SocketAdvice.SocketBindAdvice.class)
+                                    .on(ElementMatchers.named("bind")))
+                    )
+                    .type(ElementMatchers.named("java.net.DatagramSocket"))
+                    .transform((b, td, cl, module, pd) ->
+                            b.visit(Advice.to(SocketAdvice.SocketBindAdvice.class)
+                                    .on(ElementMatchers.named("bind")))
+                    )
+                    .type(ElementMatchers.named("java.nio.channels.DatagramChannel"))
+                    .transform((b, td, cl, module, pd) ->
+                            b.visit(Advice.to(SocketAdvice.SocketBindAdvice.class)
+                                    .on(ElementMatchers.named("bind")))
+                    );
 
+            builder.installOn(instrumentation);
             System.err.println("[policy-agent] socket policy instrumentation installed");
 
-        } catch (Exception e) {
-            throw new RuntimeException("[policy-agent] Failed to initialize agent", e);
+        }
+        catch (Throwable t)
+        {
+            // ✅ correct for agents, avoids REC warning
+            throw new RuntimeException("[policy-agent] Failed to initialize agent", t);
         }
     }
 }
