@@ -134,11 +134,13 @@ public final class SocketPolicyBootstrap
 
     public static void validate(Object endpoint)
     {
-
-        // 🔥 NEW: enforce caller authorization
-        if (!isAuthorizedCaller())
+        if (!isTrusted())
         {
-            throw new SecurityException("[policy-agent] DENY: unauthorized Kafka caller");
+            // optional: still enforce caller restriction HERE
+            if (!isAuthorizedCaller())
+            {
+                throw new SecurityException("[policy-agent] DENY: unauthorized Kafka caller");
+            }
         }
 
         if (!isTrusted())
@@ -167,8 +169,45 @@ public final class SocketPolicyBootstrap
         }
     }
 
+    private static boolean isSystemCaller()
+    {
+        try
+        {
+            return java.lang.StackWalker.getInstance(
+                            java.lang.StackWalker.Option.RETAIN_CLASS_REFERENCE)
+                    .walk(frames ->
+                            frames
+                                    .skip(2)
+                                    .map(f -> f.getClassName())
+                                    .anyMatch(name ->
+                                            name.startsWith("java.") ||
+                                                    name.startsWith("jdk.") ||
+                                                    name.startsWith("sun.") ||
+                                                    name.startsWith("javax.management") ||
+                                                    name.startsWith("com.sun.")
+                                    )
+                    );
+        }
+        catch (Exception e)
+        {
+            return false;
+        }
+    }
+
     public static void validateBind(Object endpoint)
     {
+        // ✅ Allow trusted context (Kafka, agent-marked)
+        if (isTrusted())
+        {
+            return;
+        }
+
+        // ✅ Allow JVM / system classes
+        if (isSystemCaller())
+        {
+            return;
+        }
+
         throw new SecurityException("[policy-agent] DENY: listening sockets are not allowed");
     }
 
