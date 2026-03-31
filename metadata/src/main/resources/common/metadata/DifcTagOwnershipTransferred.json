@@ -1,0 +1,12 @@
+{
+  "apiKey": 1005,
+  "type": "metadata",
+  "name": "DifcTagOwnershipTransferredRecord",
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    { "name": "TagName", "type": "string", "versions": "0+", "about": "The tag whose ownership is being transferred." },
+    { "name": "FromClientId", "type": "string", "versions": "0+", "about": "The client relinquishing ownership." },
+    { "name": "ToClientId", "type": "string", "versions": "0+", "about": "The client receiving ownership." }
+  ]
+}

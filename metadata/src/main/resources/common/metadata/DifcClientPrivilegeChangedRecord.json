@@ -1,0 +1,13 @@
+{
+  "apiKey": 1004,
+  "type": "metadata",
+  "name": "DifcClientPrivilegeChangedRecord",
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    { "name": "ClientId", "type": "string", "versions": "0+", "about": "The client receiving or losing the capability." },
+    { "name": "TagName", "type": "string", "versions": "0+", "about": "The tag the capability applies to." },
+    { "name": "Capability", "type": "int8", "versions": "0+", "about": "0 for CAN_ADD, 1 for CAN_REMOVE (mapping to the Capability enum)." },
+    { "name": "Action", "type": "int8", "versions": "0+", "about": "1 to Grant capability, 0 to Revoke capability." }
+  ]
+}

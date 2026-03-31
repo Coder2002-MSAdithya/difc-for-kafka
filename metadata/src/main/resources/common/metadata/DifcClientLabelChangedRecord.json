@@ -1,0 +1,12 @@
+{
+  "apiKey": 1003,
+  "type": "metadata",
+  "name": "DifcClientLabelChangedRecord",
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    { "name": "ClientId", "type": "string", "versions": "0+", "about": "The client whose active label is changing." },
+    { "name": "TagName", "type": "string", "versions": "0+", "about": "The tag being added or removed from the label." },
+    { "name": "Action", "type": "int8", "versions": "0+", "about": "1 to Add the tag, 0 to Remove the tag." }
+  ]
+}

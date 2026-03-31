@@ -1,0 +1,10 @@
+{
+  "apiKey": 1000,
+  "type": "metadata",
+  "name": "DifcClientRegisteredRecord",
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    { "name": "ClientId", "type": "string", "versions": "0+", "about": "The unique identifier of the registered DIFC client." }
+  ]
+}

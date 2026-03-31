@@ -1,0 +1,12 @@
+{
+  "apiKey": 1001,
+  "type": "metadata",
+  "name": "DifcTagCreatedRecord",
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    { "name": "TagName", "type": "string", "versions": "0+", "about": "The name of the tag." },
+    { "name": "TagId", "type": "int32", "versions": "0+", "about": "The centrally generated positive 31-bit integer ID for the tag." },
+    { "name": "OwnerClientId", "type": "string", "versions": "0+", "about": "The client ID of the tag's creator and initial owner." }
+  ]
+}
