@@ -24,6 +24,7 @@ import org.apache.kafka.clients.producer.Producer;
 import org.apache.kafka.common.serialization.ByteArrayDeserializer;
 import org.apache.kafka.common.serialization.ByteArraySerializer;
 import org.apache.kafka.streams.KafkaClientSupplier;
+import org.apache.kafka.streams.internals.DifcStreamsRuntime;
 
 import java.util.Map;
 
@@ -36,12 +37,16 @@ public class DefaultKafkaClientSupplier implements KafkaClientSupplier {
 
     @Override
     public Producer<byte[], byte[]> getProducer(final Map<String, Object> config) {
-        return new KafkaProducer<>(config, new ByteArraySerializer(), new ByteArraySerializer());
+        KafkaProducer<byte[], byte[]> p = new KafkaProducer<>(config, new ByteArraySerializer(), new ByteArraySerializer());
+        DifcStreamsRuntime.registerProducer(p);
+        return p;
     }
 
     @Override
     public Consumer<byte[], byte[]> getConsumer(final Map<String, Object> config) {
-        return new KafkaConsumer<>(config, new ByteArrayDeserializer(), new ByteArrayDeserializer());
+        KafkaConsumer<byte[], byte[]> c = new KafkaConsumer<>(config, new ByteArrayDeserializer(), new ByteArrayDeserializer());
+        DifcStreamsRuntime.registerConsumer(c);
+        return c;
     }
 
     @Override

@@ -100,6 +100,7 @@ public class KafkaStreamsDifcClient {
         System.out.println("Look for repeated 'DUMMY response: ...' output from the DIFC sender thread.");
 
         streams.start();
+        System.out.println(streams.registerClient());
         latch.await();
     }
 }

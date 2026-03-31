@@ -13,10 +13,7 @@ public final class DifcSyncFacade {
         this.producer = producer;
     }
 
-    public RegisterClientResponseData registerClient() {
-        // client.id already == application.id
-        return producer.registerClient();
-    }
+    public RegisterClientResponseData registerClient() {return producer.registerClient();}
 
     public CreateTagResponseData createTag(String tagName) {
         return producer.createTag(tagName);
