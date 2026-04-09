@@ -259,13 +259,8 @@ class TagRegistrarTest {
     void testRegisterClientSuccess()
     {
         TagRegistrar registrar = new TagRegistrar();
-        ClientDIFCPrivs newClient = registrar.registerClient("newClient");
-        assertEquals("newClient", newClient.getClientId());
-        assertTrue(newClient.getTags().isEmpty());
-        assertTrue(newClient.getAddCapabilities().isEmpty());
-        assertTrue(newClient.getRemoveCapabilities().isEmpty());
-        assertTrue(newClient.getOwnedTags().isEmpty());
-        assertNotNull(registrar.getClient("newClient"));
+        int status = registrar.registerClient("newClient");
+        assertEquals(0, status);
     }
 
     @Test

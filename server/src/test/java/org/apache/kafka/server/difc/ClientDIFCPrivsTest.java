@@ -19,7 +19,7 @@ public class ClientDIFCPrivsTest {
 
     @Test
     public void testNullClientId() {
-        assertThrows(NullInputException.class, () -> new ClientDIFCPrivs(null));
+        assertThrows(NullInputException.class, () -> new ClientDIFCPrivs((String) null));
         System.out.println("testNullClientId passed (expected exception thrown)");
     }
 
