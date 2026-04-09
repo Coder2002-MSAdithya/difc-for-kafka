@@ -132,21 +132,21 @@ public enum ApiKeys {
     WRITE_SHARE_GROUP_STATE(ApiMessageType.WRITE_SHARE_GROUP_STATE, true),
     DELETE_SHARE_GROUP_STATE(ApiMessageType.DELETE_SHARE_GROUP_STATE, true),
     READ_SHARE_GROUP_STATE_SUMMARY(ApiMessageType.READ_SHARE_GROUP_STATE_SUMMARY, true),
-    CREATE_TAG(ApiMessageType.CREATE_TAG, false),
-    DESTROY_TAG(ApiMessageType.DESTROY_TAG, false),
-    REGISTER_CLIENT(ApiMessageType.REGISTER_CLIENT, false),
-    ADD_TAG(ApiMessageType.ADD_TAG, false),
-    REMOVE_TAG(ApiMessageType.REMOVE_TAG, false),
-    ADD_CLIENT_PRIVS(ApiMessageType.ADD_CLIENT_PRIVS, false),
-    REMOVE_CLIENT_PRIVS(ApiMessageType.REMOVE_CLIENT_PRIVS, false),
-    GRANT_OWNER_PRIVILEGES(ApiMessageType.GRANT_OWNER_PRIVILEGES, false),
+    CREATE_TAG(ApiMessageType.CREATE_TAG, false, true),
+    DESTROY_TAG(ApiMessageType.DESTROY_TAG, false, true),
+    REGISTER_CLIENT(ApiMessageType.REGISTER_CLIENT, false, true),
+    ADD_TAG(ApiMessageType.ADD_TAG, false, true),
+    REMOVE_TAG(ApiMessageType.REMOVE_TAG, false, true),
+    ADD_CLIENT_PRIVS(ApiMessageType.ADD_CLIENT_PRIVS, false, true),
+    REMOVE_CLIENT_PRIVS(ApiMessageType.REMOVE_CLIENT_PRIVS, false, true),
+    GRANT_OWNER_PRIVILEGES(ApiMessageType.GRANT_OWNER_PRIVILEGES, false, true),
     GET_LABEL(ApiMessageType.GET_LABEL, false),
     GET_POS_CAPS(ApiMessageType.GET_POS_CAPS, false),
     GET_NEG_CAPS(ApiMessageType.GET_NEG_CAPS, false),
     GET_OWN_LIST(ApiMessageType.GET_OWN_LIST, false),
-    GRANT_CAP(ApiMessageType.GRANT_CAP, false),
+    GRANT_CAP(ApiMessageType.GRANT_CAP, false, true),
     DUMMY(ApiMessageType.DUMMY, false),
-    POLL_PRIVS_REQ(ApiMessageType.POLL_PRIVS_REQ, false);
+    POLL_PRIVS_REQ(ApiMessageType.POLL_PRIVS_REQ, false, true);
 
 
     private static final Map<ApiMessageType.ListenerType, EnumSet<ApiKeys>> APIS_BY_LISTENER =

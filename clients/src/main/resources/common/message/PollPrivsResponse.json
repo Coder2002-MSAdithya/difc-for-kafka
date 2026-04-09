@@ -17,6 +17,12 @@
       "type": "int8",
       "versions": "0+",
       "about": "Capability code (0=CAN_ADD, 1=CAN_REMOVE, -1=none)."
+    },
+    {
+      "name": "requesterClientId",
+      "type": "string",
+      "versions": "0+",
+      "about": "The identifier of the client that requested the privileges"
     }
   ]
 }

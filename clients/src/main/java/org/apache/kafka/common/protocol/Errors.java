@@ -425,7 +425,7 @@ public enum Errors {
     DIFC_UNSUPPORTED_CAPABILITY(137, "The capability code provided in the request is NOT supported", ApiException::new);
 
 
-    private static final Logger log = LoggerFactory.getLogger(Errors.class);
+    public static final Logger log = LoggerFactory.getLogger(Errors.class);
 
     private static final Map<Class<?>, Errors> CLASS_TO_ERROR = new HashMap<>();
     private static final Map<Short, Errors> CODE_TO_ERROR = new HashMap<>();
