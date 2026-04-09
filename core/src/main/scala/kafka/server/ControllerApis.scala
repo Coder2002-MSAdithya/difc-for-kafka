@@ -58,6 +58,7 @@ import org.apache.kafka.common.security.auth.KafkaPrincipal
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.server.authorizer.Authorizer
 import org.apache.kafka.server.common.{ApiMessageAndVersion, RequestLocal}
+import org.apache.kafka.server.difc.Capability
 
 import scala.jdk.CollectionConverters._
 
@@ -132,9 +133,19 @@ class ControllerApis(
         case ApiKeys.ADD_RAFT_VOTER => handleAddRaftVoter(request)
         case ApiKeys.REMOVE_RAFT_VOTER => handleRemoveRaftVoter(request)
         case ApiKeys.UPDATE_RAFT_VOTER => handleUpdateRaftVoter(request)
+        case ApiKeys.CREATE_TAG => handleCreateTagRequest(request)
+        case ApiKeys.DESTROY_TAG => handleDestroyTagRequest(request)
+        case ApiKeys.REGISTER_CLIENT => handleRegisterClientRequest(request)
+        case ApiKeys.ADD_TAG => handleAddTagRequest(request)
+        case ApiKeys.REMOVE_TAG => handleRemoveTagRequest(request)
+        case ApiKeys.ADD_CLIENT_PRIVS => handleAddClientPrivsRequest(request)
+        case ApiKeys.REMOVE_CLIENT_PRIVS => handleRemoveClientPrivsRequest(request)
+        case ApiKeys.GRANT_OWNER_PRIVILEGES => handleGrantOwnershipRequest(request)
+        case ApiKeys.GRANT_CAP => handleGrantCapRequest(request)
+        case ApiKeys.POLL_PRIVS_REQ => handlePollPrivsRequest(request)
         case _ => throw new ApiException(s"Unsupported ApiKey ${request.context.header.apiKey}")
       }
-
+      info(s"Controller received API key = ${request.header.apiKey}")
       // This catches exceptions in the future and subsequent completion stages returned by the request handlers.
       handlerFuture.whenComplete { (_, exception) =>
         if (exception != null) {
@@ -156,6 +167,272 @@ class ControllerApis(
       // Only record local completion time if it is unset.
       if (request.apiLocalCompleteTimeNanos < 0) {
         request.apiLocalCompleteTimeNanos = time.nanoseconds
+      }
+    }
+  }
+
+    /* Handle a request to register a new DIFC client.
+   * This creates a new security principal in the DIFC system with
+   * empty labels, capabilities, and ownership sets.
+   */
+  def handleRegisterClientRequest(request: RequestChannel.Request): CompletableFuture[Unit] = {
+    // 1. Calculate the timeout deadline
+    val deadlineNs = time.nanoseconds() + (config.requestTimeoutMs.toLong * 1000000L)
+
+    // 2. Wrap the authorizable context.
+    // CRITICAL: This extracts the authenticated KafkaPrincipal (e.g., "User:Alice")
+    // from the network session and securely passes it down.
+    val context = new ControllerRequestContext(
+      request.context.header.data(),
+      request.context.principal,
+      java.util.OptionalLong.of(deadlineNs)
+    )
+
+    // 3. Call your QuorumController method
+    controller.registerDifcClient(context).handle[Unit] { (response, exception) =>
+      if (exception != null) {
+        requestHelper.sendErrorResponseMaybeThrottle(request, exception)
+      } else {
+        // Assuming you generated a RegisterClientResponse class from your JSON
+        requestHelper.sendResponseMaybeThrottle(request, requestVersion => new RegisterClientResponse(response))
+      }
+    }
+  }
+
+  /* Handle a request to create/allocate a new tag for Kafka clients */
+  def handleCreateTagRequest(request: RequestChannel.Request): CompletableFuture[Unit] = {
+    val createTagRequest = request.body[CreateTagRequest]
+    val tagName = createTagRequest.data.tagName()
+
+    // 1. Calculate the timeout deadline
+    val deadlineNs = time.nanoseconds() + (config.requestTimeoutMs.toLong * 1000000L)
+
+    // 2. Wrap the authorizable context (this preserves the authenticated client ID)
+    val context = new ControllerRequestContext(
+      request.context.header.data(),
+      request.context.principal,
+      OptionalLong.of(deadlineNs)
+    )
+
+    // 3. Forward the raw data to your QuorumController
+    controller.createDifcTag(context, tagName).handle[Unit] { (response, exception) =>
+      if (exception != null) {
+        requestHelper.sendErrorResponseMaybeThrottle(request, exception)
+      } else {
+        requestHelper.sendResponseMaybeThrottle(request, requestVersion => new CreateTagResponse(response))
+      }
+    }
+  }
+
+    /* Handle a request to destroy an existing tag.
+   * Only the owner of the tag is authorized to delete it.
+   * This removes the tag from the registry and revokes all capabilities and labels
+   * associated with it across every client.
+   */
+  def handleDestroyTagRequest(request: RequestChannel.Request): CompletableFuture[Unit] = {
+    val destroyTagRequest = request.body[DestroyTagRequest]
+    val tagName = destroyTagRequest.data().tagName()
+
+    val deadlineNs = time.nanoseconds() + (config.requestTimeoutMs.toLong * 1000000L)
+
+    val context = new ControllerRequestContext(
+      request.context.header.data(),
+      request.context.principal,
+      OptionalLong.of(deadlineNs)
+    )
+
+    controller.destroyDifcTag(context, tagName).handle[Unit] {
+      (response, exception) => {
+        if(exception != null) {
+          requestHelper.sendErrorResponseMaybeThrottle(request, exception)
+        }
+        else {
+          requestHelper.sendResponseMaybeThrottle(request, requestVersion => new DestroyTagResponse(response))
+        }
+      }
+    }
+  }
+
+  /* Handle a request for a client to add a tag to its current security label.
+ * The client must possess CAN_ADD capability or ownership over the tag.
+ */
+  def handleAddTagRequest(request: RequestChannel.Request): CompletableFuture[Unit] = {
+     val addTagRequest = request.body[AddTagRequest]
+     val tagName = addTagRequest.data().tagName()
+
+     val deadlineNs = time.nanoseconds() + (config.requestTimeoutMs.toLong * 1000000L)
+
+     val context = new ControllerRequestContext(
+       request.context.header.data(),
+       request.context.principal,
+       OptionalLong.of(deadlineNs)
+     )
+
+     controller.addDifcTagToLabel(context, tagName).handle[Unit] {
+       (response, exception) => {
+         if(exception != null) {
+           requestHelper.sendErrorResponseMaybeThrottle(request, exception)
+         }
+         else{
+           requestHelper.sendResponseMaybeThrottle(request, requestVersion => new AddTagResponse(response))
+         }
+       }
+     }
+  }
+
+  /* Handle a request for a client to remove a tag from its current security label.
+ * The client must possess CAN_REMOVE capability or ownership over the tag.
+ */
+  def handleRemoveTagRequest(request: RequestChannel.Request): CompletableFuture[Unit] = {
+     val removeTagRequest = request.body[RemoveTagRequest]
+     val tagName = removeTagRequest.data().tagName()
+
+     val deadlineNs = time.nanoseconds() + (config.requestTimeoutMs.toLong * 1000000L)
+
+     val context = new ControllerRequestContext(
+       request.context.header.data(),
+       request.context.principal,
+       OptionalLong.of(deadlineNs)
+     )
+
+    controller.removeDifcTagFromLabel(context, tagName).handle[Unit] {
+      (response, exception) => {
+          if(exception != null) {
+            requestHelper.sendErrorResponseMaybeThrottle(request, exception)
+          }
+          else {
+             requestHelper.sendResponseMaybeThrottle(request, requestVersion => new RemoveTagResponse(response))
+          }
+      }
+    }
+  }
+
+  /* Handle a request to grant tag capabilities (CAN_ADD / CAN_REMOVE) to another client.
+ * Only the owner of the tag is authorized to bestow privileges.
+ */
+  def handleAddClientPrivsRequest(request: RequestChannel.Request): CompletableFuture[Unit] = {
+     val addClientPrivsRequest = request.body[AddClientPrivsRequest]
+     val tagName = addClientPrivsRequest.data().tagName()
+     val targetPrincipal = addClientPrivsRequest.data().clientId()
+     val capability = addClientPrivsRequest.data().capability()
+
+    val deadlineNs = time.nanoseconds() + (config.requestTimeoutMs.toLong * 1000000L)
+
+    val context = new ControllerRequestContext(
+      request.context.header.data(),
+      request.context.principal,
+      OptionalLong.of(deadlineNs)
+    )
+
+    controller.addClientDifcPrivs(context, tagName, targetPrincipal, if (capability == 0) Capability.CAN_ADD else Capability.CAN_REMOVE).handle[Unit] {
+      (response, exception) => {
+        if(exception != null) {
+          requestHelper.sendErrorResponseMaybeThrottle(request, exception)
+        }
+        else {
+          requestHelper.sendResponseMaybeThrottle(request, requestVersion => new AddClientPrivsResponse(response))
+        }
+      }
+    };
+  }
+
+  /* Handle a request to revoke tag capabilities (CAN_ADD / CAN_REMOVE) to another client.
+  * Only the owner of the tag is authorized to revoke privileges.
+   */
+  def handleRemoveClientPrivsRequest(request: RequestChannel.Request): CompletableFuture[Unit] = {
+    val removeClientPrivsRequest = request.body[RemoveClientPrivsRequest]
+    val tagName = removeClientPrivsRequest.data().tagName()
+    val targetPrincipal = removeClientPrivsRequest.data().clientId()
+    val capability = removeClientPrivsRequest.data().capability()
+
+    val deadlineNs = time.nanoseconds() + (config.requestTimeoutMs.toLong * 1000000L)
+
+    val context = new ControllerRequestContext(
+      request.context.header.data(),
+      request.context.principal,
+      OptionalLong.of(deadlineNs)
+    )
+
+    controller.removeClientDifcPrivs(context, tagName, targetPrincipal, if (capability == 0) Capability.CAN_ADD else Capability.CAN_REMOVE).handle[Unit] {
+      (response, exception) => {
+        if(exception != null) {
+          requestHelper.sendErrorResponseMaybeThrottle(request, exception)
+        }
+        else {
+          requestHelper.sendResponseMaybeThrottle(request, requestVersion => new RemoveClientPrivsResponse(response))
+        }
+      }
+    };
+  }
+
+    /* Handle a request to transfer ownership of a tag from the current owner
+  * to another client. Only the existing owner of the tag is authorized
+  * to perform this operation.
+  */
+  def handleGrantOwnershipRequest(request: RequestChannel.Request) : CompletableFuture[Unit] = {
+    val grantOwnerPrivilegesRequest = request.body[GrantOwnerPrivilegesRequest]
+    val tagName = grantOwnerPrivilegesRequest.data().tagName()
+    val targetPrincipal = grantOwnerPrivilegesRequest.data().clientId()
+
+    val deadlineNs = time.nanoseconds() + (config.requestTimeoutMs.toLong * 1000000L)
+
+    val context = new ControllerRequestContext(
+      request.context.header.data(),
+      request.context.principal,
+      OptionalLong.of(deadlineNs)
+    )
+
+    controller.grantOwnerDifcPrivileges(context, tagName, targetPrincipal).handle[Unit] {
+      (response, exception) => {
+        if(exception != null) {
+          requestHelper.sendErrorResponseMaybeThrottle(request, exception)
+        }
+        else {
+          requestHelper.sendResponseMaybeThrottle(request, requestVersion => new GrantOwnerPrivilegesResponse(response))
+        }
+      }
+    };
+  }
+
+  def handleGrantCapRequest(request: RequestChannel.Request): CompletableFuture[Unit] = {
+    val req = request.body[GrantCapRequest]
+    val requesterPrincipal = request.context.principal().getName()
+
+    val deadlineNs = time.nanoseconds() + (config.requestTimeoutMs.toLong * 1000000L)
+
+    val context = new ControllerRequestContext(
+      request.context.header.data(),
+      request.context.principal,
+      OptionalLong.of(deadlineNs)
+    )
+
+    // Using your fields: data().tagName() and data().capability()
+    controller.enqueueCapabilityRequest(context, req.data().tagName(), req.data().capability(), requesterPrincipal).handle[Unit] { (response, exception) =>
+      if (exception != null) {
+        requestHelper.sendErrorResponseMaybeThrottle(request, exception)
+      } else {
+        requestHelper.sendResponseMaybeThrottle(request, _ => new GrantCapResponse(response))
+      }
+    }
+  }
+
+  def handlePollPrivsRequest(request: RequestChannel.Request): CompletableFuture[Unit] = {
+    // PollPrivsReqRequest has no body fields, so we just grab the authenticated principal
+    val targetPrincipal = request.context.principal().getName()
+
+    val deadlineNs = time.nanoseconds() + (config.requestTimeoutMs.toLong * 1000000L)
+
+    val context = new ControllerRequestContext(
+      request.context.header.data(),
+      request.context.principal,
+      OptionalLong.of(deadlineNs)
+    )
+
+    controller.pollPendingRequests(context, targetPrincipal).handle[Unit] { (response, exception) =>
+      if (exception != null) {
+        requestHelper.sendErrorResponseMaybeThrottle(request, exception)
+      } else {
+        requestHelper.sendResponseMaybeThrottle(request, _ => new PollPrivsReqResponse(response))
       }
     }
   }

@@ -25,7 +25,7 @@ import org.apache.kafka.common.protocol.{ApiMessage, Errors}
 import org.apache.kafka.common.record.RecordBatch
 import org.apache.kafka.common.security.auth.SecurityProtocol
 import org.apache.kafka.common.{DirectoryId, TopicPartition, Uuid}
-import org.apache.kafka.image.{MetadataDelta, MetadataImage, MetadataProvenance}
+import org.apache.kafka.image.{DifcImage, MetadataDelta, MetadataImage, MetadataProvenance}
 import org.apache.kafka.metadata.LeaderRecoveryState
 import org.apache.kafka.server.common.KRaftVersion
 import org.junit.jupiter.api.Assertions._
@@ -60,7 +60,7 @@ object MetadataCacheTest {
           image.producerIds(),
           image.acls(),
           image.scram(),
-          image.delegationTokens())
+          image.delegationTokens(), DifcImage.EMPTY)
         val delta = new MetadataDelta.Builder().setImage(partialImage).build()
         records.foreach(record => delta.replay(record))
         c.setImage(delta.apply(new MetadataProvenance(100L, 10, 1000L, true)))

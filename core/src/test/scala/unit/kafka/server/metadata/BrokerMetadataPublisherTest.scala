@@ -38,6 +38,7 @@ import org.apache.kafka.image.loader.LogDeltaManifest
 import org.apache.kafka.network.SocketServerConfigs
 import org.apache.kafka.raft.LeaderAndEpoch
 import org.apache.kafka.server.common.{KRaftVersion, MetadataVersion}
+import org.apache.kafka.server.difc.TagRegistrar
 import org.apache.kafka.server.fault.FaultHandler
 import org.junit.jupiter.api.Assertions.{assertEquals, assertNotNull, assertTrue}
 import org.junit.jupiter.api.{AfterEach, BeforeEach, Test}
@@ -203,7 +204,8 @@ class BrokerMetadataPublisherTest {
       mock(classOf[DelegationTokenPublisher]),
       mock(classOf[AclPublisher]),
       faultHandler,
-      faultHandler
+      faultHandler,
+      tagRegistrar = new TagRegistrar()
     )
 
     val image = MetadataImage.EMPTY

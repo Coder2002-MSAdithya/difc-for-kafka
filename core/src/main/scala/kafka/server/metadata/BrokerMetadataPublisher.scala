@@ -77,6 +77,7 @@ class BrokerMetadataPublisher(
   aclPublisher: AclPublisher,
   fatalFaultHandler: FaultHandler,
   metadataPublishingFaultHandler: FaultHandler,
+  tagRegistrar: org.apache.kafka.server.difc.TagRegistrar
 ) extends MetadataPublisher with Logging {
   logIdent = s"[BrokerMetadataPublisher id=${config.nodeId}] "
 
@@ -228,6 +229,29 @@ class BrokerMetadataPublisher(
           s"coordinator with local changes in $deltaName", t)
       }
 
+      // =========================================================
+      // YOUR DIFC KRAFT SYNCHRONIZATION HOOK
+      // =========================================================
+      try {
+        if (_firstPublish) {
+          // 1. Broker Bootup: Load the entire snapshot (Tags AND Clients)
+          tagRegistrar.loadFromImage(newImage.difc())
+          info(s"Loaded DIFC snapshot: ${newImage.difc().tags().size()} tags and ${newImage.difc().clients().size()} clients.")
+        } else {
+          // 2. Runtime: Apply incremental updates
+          Option(delta.difcDelta()).foreach { difcDelta =>
+
+            // This single call updates both tags AND clients!
+            tagRegistrar.applyDelta(difcDelta)
+
+            info(s"Applied DIFC Delta: ${difcDelta.createdTags().size()} tags created, ${difcDelta.updatedClients().size()} clients updated.")
+          }
+        }
+      } catch {
+        case t: Throwable => metadataPublishingFaultHandler.handleFault(
+          s"Error applying DIFC metadata delta in $deltaName", t)
+      }
+
       if (_firstPublish) {
         finishInitializingReplicaManager()
       }
@@ -349,7 +373,7 @@ class BrokerMetadataPublisher(
 
   private def finishInitializingReplicaManager(): Unit = {
     try {
-      // Make sure that the high water mark checkpoint thread is running for the replica
+      // Make sure that the high watermark checkpoint thread is running for the replica
       // manager.
       replicaManager.startHighWatermarkCheckPointThread()
     } catch {

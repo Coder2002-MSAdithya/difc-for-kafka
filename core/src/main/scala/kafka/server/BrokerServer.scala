@@ -46,6 +46,7 @@ import org.apache.kafka.security.CredentialProvider
 import org.apache.kafka.server.authorizer.Authorizer
 import org.apache.kafka.server.common.{ApiMessageAndVersion, DirectoryEventHandler, NodeToControllerChannelManager, TopicIdPartition}
 import org.apache.kafka.server.config.ConfigType
+import org.apache.kafka.server.difc.TagRegistrar
 import org.apache.kafka.server.log.remote.storage.RemoteLogManagerConfig
 import org.apache.kafka.server.metrics.{ClientMetricsReceiverPlugin, KafkaYammerMetrics}
 import org.apache.kafka.server.network.{EndpointReadyFutures, KafkaAuthorizerServerInfo}
@@ -87,6 +88,7 @@ class BrokerServer(
   import kafka.server.Server._
 
   private val logContext: LogContext = new LogContext(s"[BrokerServer id=${config.nodeId}] ")
+  val tagRegistrar: TagRegistrar = new TagRegistrar()
 
   this.logIdent = logContext.logPrefix
 
@@ -467,7 +469,8 @@ class BrokerServer(
         time = time,
         tokenManager = tokenManager,
         apiVersionManager = apiVersionManager,
-        clientMetricsManager = clientMetricsManager)
+        clientMetricsManager = clientMetricsManager,
+        tagRegistrar = tagRegistrar)
 
       dataPlaneRequestHandlerPool = new KafkaRequestHandlerPool(config.nodeId,
         socketServer.dataPlaneRequestChannel, dataPlaneRequestProcessor, time,
@@ -534,7 +537,8 @@ class BrokerServer(
           authorizer
         ),
         sharedServer.initialBrokerMetadataLoadFaultHandler,
-        sharedServer.metadataPublishingFaultHandler
+        sharedServer.metadataPublishingFaultHandler,
+        tagRegistrar
       )
       // If the BrokerLifecycleManager's initial catch-up future fails, it means we timed out
       // or are shutting down before we could catch up. Therefore, also fail the firstPublishFuture.

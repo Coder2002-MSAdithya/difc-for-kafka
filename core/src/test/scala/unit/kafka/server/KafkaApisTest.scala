@@ -85,6 +85,7 @@ import org.apache.kafka.server.{BrokerFeatures, ClientMetricsManager}
 import org.apache.kafka.server.authorizer.{Action, AuthorizationResult, Authorizer}
 import org.apache.kafka.server.common.{FeatureVersion, FinalizedFeatures, GroupVersion, KRaftVersion, MetadataVersion, RequestLocal, TransactionVersion}
 import org.apache.kafka.server.config.{KRaftConfigs, ReplicationConfigs, ServerConfigs, ServerLogConfigs}
+import org.apache.kafka.server.difc.TagRegistrar
 import org.apache.kafka.server.metrics.ClientMetricsTestUtils
 import org.apache.kafka.server.share.{CachedSharePartition, ErroneousAndValidPartitionData}
 import org.apache.kafka.server.quota.ThrottleCallback
@@ -208,7 +209,8 @@ class KafkaApisTest extends Logging {
       time = time,
       tokenManager = null,
       apiVersionManager = apiVersionManager,
-      clientMetricsManager = clientMetricsManager)
+      clientMetricsManager = clientMetricsManager,
+      tagRegistrar = new TagRegistrar())
   }
 
   private def setupFeatures(featureVersions: Seq[FeatureVersion]): Unit = {
@@ -9204,9 +9206,9 @@ class KafkaApisTest extends Logging {
       requestMetrics, envelope = None)
   }
 
-  private def buildRequestWithCustomClientId(request : AbstractRequest, clientId : String) : RequestChannel.Request = {
-     buildRequest(request, ListenerName.forSecurityProtocol(SecurityProtocol.SSL), fromPrivilegedListener = false, None, requestChannelMetrics, clientId)
-  }
+//  private def buildRequestWithCustomClientId(request : AbstractRequest, clientId : String) : RequestChannel.Request = {
+//     buildRequest(request, ListenerName.forSecurityProtocol(SecurityProtocol.SSL), fromPrivilegedListener = false, None, requestChannelMetrics, clientId)
+//  }
 
   private def verifyNoThrottling[T <: AbstractResponse](
     request: RequestChannel.Request
@@ -10720,127 +10722,6 @@ class KafkaApisTest extends Logging {
       assertEquals(expectedWriteShareGroupStateResponseData, response.data)
     }
     response
-  }
-
-  @Test
-  def testHandleCreateTagRequestInvalidName(): Unit = {
-    val tagName = "bad@tag"
-    val clientId = "client1"
-
-    // Use buildRequest
-    val requestData = new CreateTagRequestData().setTagName(tagName)
-    val createTagRequest = new CreateTagRequest(requestData, ApiKeys.CREATE_TAG.latestVersion())
-
-    // Pass clientId as an argument to buildRequest
-    val request = buildRequestWithCustomClientId(createTagRequest, clientId)
-
-    metadataCache = MetadataCache.kRaftMetadataCache(brokerId, () => KRaftVersion.LATEST_PRODUCTION)
-    kafkaApis = createKafkaApis()
-
-    kafkaApis.handleCreateTagRequest(request)
-
-    val response = verifyNoThrottling[CreateTagResponse](request)
-    val responseData = response.data()
-
-    assertEquals(Errors.INVALID_REQUEST.code, responseData.errorCode())
-    assertTrue(responseData.errorMessage().contains("Invalid tag name 'bad@tag'"))
-    assertEquals(0, responseData.tagId())
-  }
-
-  @Test
-  def testHandleCreateTagRequestWithTooLongTagName() : Unit = {
-     val tagName = "pneumoniaUltraMicroscopic"
-     val clientId = "client2"
-
-     val requestData = new CreateTagRequestData().setTagName(tagName)
-     val createTagRequest = new CreateTagRequest(requestData, ApiKeys.CREATE_TAG.latestVersion())
-
-     val request = buildRequestWithCustomClientId(createTagRequest, clientId)
-
-    metadataCache = MetadataCache.kRaftMetadataCache(brokerId, () => KRaftVersion.LATEST_PRODUCTION)
-    kafkaApis = createKafkaApis()
-
-    kafkaApis.handleCreateTagRequest(request)
-
-    val response = verifyNoThrottling[CreateTagResponse](request)
-    val responseData = response.data()
-
-    assertEquals(Errors.INVALID_REQUEST.code, responseData.errorCode())
-    assertTrue(responseData.errorMessage().contains("Tag name CANNOT be longer than"))
-    assertEquals(0, responseData.tagId())
-  }
-
-  @Test
-  def testHandleCreateTagRequestByUnknownClient() : Unit = {
-    val tagName = "helloNormalTag"
-    val clientId = "clientX"
-
-    val requestData = new CreateTagRequestData().setTagName(tagName)
-    val createTagRequest = new CreateTagRequest(requestData, ApiKeys.CREATE_TAG.latestVersion())
-
-    val request = buildRequestWithCustomClientId(createTagRequest, clientId)
-
-    metadataCache = MetadataCache.kRaftMetadataCache(brokerId, () => KRaftVersion.LATEST_PRODUCTION)
-    kafkaApis = createKafkaApis()
-
-    kafkaApis.handleCreateTagRequest(request)
-
-    val response = verifyNoThrottling[CreateTagResponse](request)
-    val responseData = response.data()
-
-    assertEquals(Errors.INVALID_REQUEST.code, responseData.errorCode())
-    assertTrue(responseData.errorMessage().contains("Owner client '" + clientId + "' not found"))
-    assertEquals(0, responseData.tagId())
-  }
-
-  @Test
-  def testHandleCreateTagRequestForDuplicateTags() : Unit = {
-    val tagName = "helloNormalTag"
-    val clientId1 = "client1"
-    val clientId2 = "client2"
-
-    val requestData = new CreateTagRequestData().setTagName(tagName)
-    val createTagRequest = new CreateTagRequest(requestData, ApiKeys.CREATE_TAG.latestVersion())
-
-    val request1 = buildRequestWithCustomClientId(createTagRequest, clientId1)
-    val request2 = buildRequestWithCustomClientId(createTagRequest, clientId2)
-
-    metadataCache = MetadataCache.kRaftMetadataCache(brokerId, () => KRaftVersion.LATEST_PRODUCTION)
-    kafkaApis = createKafkaApis()
-
-    kafkaApis.handleCreateTagRequest(request1)
-    kafkaApis.handleCreateTagRequest(request2)
-
-
-    val response = verifyNoThrottling[CreateTagResponse](request2)
-    val responseData = response.data()
-
-    assertEquals(Errors.INVALID_REQUEST.code, responseData.errorCode())
-    assertTrue(responseData.errorMessage().contains("Tag '" + tagName + "' already exists"))
-    assertEquals(0, responseData.tagId())
-  }
-
-  @Test
-  def testHandleCreateTagRequestSuccess() : Unit = {
-    val tagName = "pneumonia"
-    val clientId = "client3"
-
-    val requestData = new CreateTagRequestData().setTagName(tagName)
-    val createTagRequest = new CreateTagRequest(requestData, ApiKeys.CREATE_TAG.latestVersion())
-
-    val request = buildRequestWithCustomClientId(createTagRequest, clientId)
-
-    metadataCache = MetadataCache.kRaftMetadataCache(brokerId, () => KRaftVersion.LATEST_PRODUCTION)
-    kafkaApis = createKafkaApis()
-
-    kafkaApis.handleCreateTagRequest(request)
-
-    val response = verifyNoThrottling[CreateTagResponse](request)
-    val responseData = response.data()
-
-    assertEquals(Errors.NONE.code, responseData.errorCode())
-    assertTrue(responseData.errorMessage().contains("Tag '" + tagName + "' created successfully"))
-    assertNotEquals(0, responseData.tagId())
   }
 
   /**

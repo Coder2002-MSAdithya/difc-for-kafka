@@ -52,10 +52,7 @@ import org.apache.kafka.common.security.auth.KafkaPrincipalSerde;
 import org.apache.kafka.common.security.auth.SecurityProtocol;
 import org.apache.kafka.common.utils.SecurityUtils;
 import org.apache.kafka.common.utils.Utils;
-import org.apache.kafka.image.ClusterImage;
-import org.apache.kafka.image.MetadataDelta;
-import org.apache.kafka.image.MetadataImage;
-import org.apache.kafka.image.MetadataProvenance;
+import org.apache.kafka.image.*;
 import org.apache.kafka.metadata.LeaderRecoveryState;
 import org.apache.kafka.network.SocketServerConfigs;
 import org.apache.kafka.network.metrics.RequestChannelMetrics;
@@ -489,7 +486,7 @@ class DescribeTopicPartitionsRequestHandlerTest {
             image.producerIds(),
             image.acls(),
             image.scram(),
-            image.delegationTokens()
+            image.delegationTokens(), image.difc()
         );
         MetadataDelta delta = new MetadataDelta.Builder().setImage(partialImage).build();
         records.stream().forEach(record -> delta.replay(record));

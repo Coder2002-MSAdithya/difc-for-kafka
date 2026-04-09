@@ -81,9 +81,8 @@ import scala.annotation.nowarn
 import scala.collection.mutable.ArrayBuffer
 import scala.collection.{Map, Seq, Set, mutable}
 import scala.jdk.CollectionConverters._
-import org.apache.kafka.server.difc.{Capability, TagRegistrar}
+import org.apache.kafka.server.difc.{TagRegistrar}
 import org.apache.kafka.common.header.internals.RecordHeader
-import org.apache.kafka.server.difc.exceptions.{CapabilityException, ClientExistsException, ClientNotFoundException, DIFCException, DuplicateTagException, InvalidClientIdException, InvalidTagNameException, NullInputException, TagNotFoundException, UnAuthorizedClientException}
 
 import java.nio.ByteBuffer
 import java.nio.charset.StandardCharsets
@@ -113,11 +112,8 @@ class KafkaApis(val requestChannel: RequestChannel,
                 val tokenManager: DelegationTokenManager,
                 val apiVersionManager: ApiVersionManager,
                 val clientMetricsManager: ClientMetricsManager,
+                val tagRegistrar: TagRegistrar
 ) extends ApiRequestHandler with Logging {
-
-  // Initialize tag registrar internally - no constructor changes needed
-  val tagRegistrar = new TagRegistrar()
-  tagRegistrar.initialize()
 
   info("TagRegistrar initialized and contents at broker startup:\n" + tagRegistrar.toString)
 
@@ -145,6 +141,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         case Some(response) => requestHelper.sendForwardedResponse(request, response)
         case None => handleInvalidVersionsDuringForwarding(request)
       }
+      info(tagRegistrar.toString)
     }
 
     forwardingManager.forwardRequest(request, responseCallback)
@@ -167,7 +164,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       requestHelper.handleError(request, e)
     }
 
-    info(s"Received API key = ${request.header.apiKey}")
+    info(s"Broker received API key = ${request.header.apiKey}")
 
     try {
       trace(s"Handling request:${request.requestDesc(true)} from connection ${request.context.connectionId};" +
@@ -254,17 +251,19 @@ class KafkaApis(val requestChannel: RequestChannel,
         case ApiKeys.WRITE_SHARE_GROUP_STATE => handleWriteShareGroupStateRequest(request)
         case ApiKeys.DELETE_SHARE_GROUP_STATE => handleDeleteShareGroupStateRequest(request)
         case ApiKeys.READ_SHARE_GROUP_STATE_SUMMARY => handleReadShareGroupStateSummaryRequest(request)
-        case ApiKeys.CREATE_TAG => handleCreateTagRequest(request)
-        case ApiKeys.DESTROY_TAG => handleDestroyTagRequest(request)
-        case ApiKeys.REGISTER_CLIENT => handleRegisterClientRequest(request)
-        case ApiKeys.ADD_TAG => handleAddTagRequest(request)
-        case ApiKeys.REMOVE_TAG => handleRemoveTagRequest(request)
-        case ApiKeys.ADD_CLIENT_PRIVS => handleAddClientPrivsRequest(request)
-        case ApiKeys.REMOVE_CLIENT_PRIVS => handleRemoveClientPrivsRequest(request)
-        case ApiKeys.GRANT_OWNER_PRIVILEGES => handleGrantOwnerPrivilegesRequest(request)
-        case ApiKeys.GET_LABEL => handleGetTagsRequest(request)
-        case ApiKeys.GET_POS_CAPS => handleGetAddCapsRequest(request)
-        case ApiKeys.GET_NEG_CAPS => handleGetRemoveCapsRequest(request)
+        case ApiKeys.CREATE_TAG => forwardToController(request)
+        case ApiKeys.DESTROY_TAG => forwardToController(request)
+        case ApiKeys.REGISTER_CLIENT => forwardToController(request)
+        case ApiKeys.ADD_TAG => forwardToController(request)
+        case ApiKeys.REMOVE_TAG => forwardToController(request)
+        case ApiKeys.ADD_CLIENT_PRIVS => forwardToController(request)
+        case ApiKeys.REMOVE_CLIENT_PRIVS => forwardToController(request)
+        case ApiKeys.GRANT_OWNER_PRIVILEGES => forwardToController(request)
+        case ApiKeys.GRANT_CAP => forwardToController(request)
+        case ApiKeys.POLL_PRIVS_REQ => forwardToController(request)
+        case ApiKeys.GET_LABEL => handleGetLabelRequest(request)
+        case ApiKeys.GET_POS_CAPS => handleGetAddCapabilitiesRequest(request)
+        case ApiKeys.GET_NEG_CAPS => handleGetRemoveCapabilitiesRequest(request)
         case ApiKeys.GET_OWN_LIST => handleGetOwnedTagsRequest(request)
         case ApiKeys.DUMMY => handleDummyRequest(request)
         case _ => throw new IllegalStateException(s"No handler for request api key ${request.header.apiKey}")
@@ -288,319 +287,6 @@ class KafkaApis(val requestChannel: RequestChannel,
     replicaManager.tryCompleteActions()
   }
 
-  def getCapability(num : Byte): Capability =
-  {
-      if(num == 0) return Capability.CAN_ADD
-      else if(num == 1) return Capability.CAN_REMOVE
-      throw new CapabilityException("The capability provided is NOT supported or does NOT exist.\n")
-  }
-
-  private def difcErrorFromException(e: Throwable): (Errors, String) = e match {
-    case e: NullInputException =>
-      (Errors.INVALID_REQUEST, e.getMessage)
-
-    case e: DuplicateTagException =>
-      (Errors.DIFC_TAG_NAME_ALREADY_EXISTS, e.getMessage)
-
-    case e: TagNotFoundException =>
-      (Errors.DIFC_TAG_NAME_NOT_FOUND, e.getMessage)
-
-    case e: ClientExistsException =>
-      (Errors.DIFC_CLIENT_ALREADY_EXISTS, e.getMessage)
-
-    case e: ClientNotFoundException =>
-      (Errors.DIFC_CLIENT_NOT_FOUND, e.getMessage)
-
-    case e: InvalidClientIdException =>
-      (Errors.DIFC_CLIENT_ID_INVALID, e.getMessage)
-
-    case e: InvalidTagNameException =>
-      (Errors.DIFC_TAG_NAME_INVALID, e.getMessage)
-
-    case e: UnAuthorizedClientException =>
-      (Errors.DIFC_UNAUTHORIZED_CLIENT, e.getMessage)
-
-    case e: CapabilityException =>
-      (Errors.DIFC_UNSUPPORTED_CAPABILITY, e.getMessage)
-
-    case e: DIFCException =>
-      (Errors.UNKNOWN_SERVER_ERROR, e.getMessage)
-
-    case other =>
-      error("Unexpected DIFC exception", other)
-      (Errors.UNKNOWN_SERVER_ERROR, other.getMessage)
-  }
-
-  /* Handle a request to create/allocate a new tag for Kafka clients */
-  def handleCreateTagRequest(request: RequestChannel.Request): Unit = {
-    val req = request.body[CreateTagRequest]
-    val tagName = req.data.tagName()
-    val clientId = request.context.clientId()
-
-    var error: Errors = Errors.NONE
-    var errorMessage: String = null
-    var tagId: Int = 0
-
-    try {
-      info("Handling CREATE_TAG request")
-      tagId = tagRegistrar.createTag(tagName, clientId)
-      errorMessage = s"Tag '$tagName' created successfully with id $tagId"
-    }
-    catch {
-      case e: Throwable =>
-        val (err, msg) = difcErrorFromException(e)
-        error = err
-        errorMessage = msg
-    }
-
-    val response = new CreateTagResponse(
-      new CreateTagResponseData()
-        .setErrorCode(error.code)
-        .setErrorMessage(errorMessage)
-        .setTagId(tagId)
-    )
-
-    requestHelper.sendMaybeThrottle(request, response)
-  }
-
-  /* Handle a request to destroy an existing tag.
- * Only the owner of the tag is authorized to delete it.
- * This removes the tag from the registry and revokes all capabilities and labels
- * associated with it across every client.
- */
-  def handleDestroyTagRequest(request: RequestChannel.Request): Unit = {
-    val req = request.body[DestroyTagRequest]
-    val tagName = req.data.tagName()
-    val clientId = request.context.clientId()
-
-    var error: Errors = Errors.NONE
-    var errorMessage: String = null
-
-    try {
-      info("Handling DESTROY_TAG request")
-      tagRegistrar.destroyTag(tagName, clientId)
-      errorMessage = s"Tag '$tagName' destroyed successfully"
-    }
-    catch {
-      case e: Throwable =>
-        val (err, msg) = difcErrorFromException(e)
-        error = err
-        errorMessage = msg
-    }
-
-    val response = new DestroyTagResponse(
-      new DestroyTagResponseData()
-        .setErrorCode(error.code)
-        .setErrorMessage(errorMessage)
-    )
-
-    requestHelper.sendMaybeThrottle(request, response)
-  }
-
-  /* Handle a request to register a new DIFC client.
- * This creates a new security principal in the DIFC system with
- * empty labels, capabilities, and ownership sets.
- */
-  def handleRegisterClientRequest(request: RequestChannel.Request): Unit = {
-    val clientId = request.context.clientId()
-    val difcRequestsTopic = s"__difc_requests_$clientId"
-
-    var error: Errors = Errors.NONE
-    var errorMessage: String = null
-
-    try {
-      info("Handling REGISTER_CLIENT request")
-      val existingTopics = metadataCache.getAllTopics()
-      if (!existingTopics.contains(difcRequestsTopic)) {
-        val controllerMutationQuota = quotas.controllerMutation.newPermissiveQuotaFor(request)
-        autoTopicCreationManager.createTopics(Set(difcRequestsTopic), controllerMutationQuota, Some(request.context))
-      }
-      tagRegistrar.registerClient(clientId)
-      errorMessage = s"Client '$clientId' registered successfully"
-    }
-    catch {
-      case e: Throwable =>
-        val (err, msg) = difcErrorFromException(e)
-        error = err
-        errorMessage = msg
-    }
-
-    val response = new RegisterClientResponse(
-      new RegisterClientResponseData()
-        .setErrorCode(error.code)
-        .setErrorMessage(errorMessage)
-    )
-
-    requestHelper.sendMaybeThrottle(request, response)
-  }
-
-
-  /* Handle a request for a client to add a tag to its current security label.
- * The client must possess CAN_ADD capability or ownership over the tag.
- */
-  def handleAddTagRequest(request: RequestChannel.Request): Unit = {
-    val req = request.body[AddTagRequest]
-    val tagName = req.data.tagName()
-    val clientId = request.context.clientId()
-
-    var error: Errors = Errors.NONE
-    var errorMessage: String = null
-
-    try {
-      info("Handling ADD_TAG request")
-      tagRegistrar.addTag(tagName, clientId)
-      errorMessage = s"Tag '$tagName' added to client '$clientId'"
-    }
-    catch {
-      case e: Throwable =>
-        val (err, msg) = difcErrorFromException(e)
-        error = err
-        errorMessage = msg
-    }
-
-    val response = new AddTagResponse(
-      new AddTagResponseData()
-        .setErrorCode(error.code)
-        .setErrorMessage(errorMessage)
-    )
-
-    requestHelper.sendMaybeThrottle(request, response)
-  }
-
-  /* Handle a request for a client to remove a tag from its current security label.
- * The client must possess CAN_REMOVE capability or ownership over the tag.
- */
-  def handleRemoveTagRequest(request: RequestChannel.Request): Unit = {
-    val req = request.body[RemoveTagRequest]
-    val tagName = req.data.tagName()
-    val clientId = request.context.clientId()
-
-    var error: Errors = Errors.NONE
-    var errorMessage: String = null
-
-    try {
-      info("Handling REMOVE_TAG request")
-      tagRegistrar.removeTag(tagName, clientId)
-      errorMessage = s"Tag '$tagName' removed from client '$clientId'"
-    }
-    catch {
-      case e: Throwable =>
-        val (err, msg) = difcErrorFromException(e)
-        error = err
-        errorMessage = msg
-    }
-
-    val response = new RemoveTagResponse(
-      new RemoveTagResponseData()
-        .setErrorCode(error.code)
-        .setErrorMessage(errorMessage)
-    )
-
-    requestHelper.sendMaybeThrottle(request, response)
-  }
-
-  /* Handle a request to grant tag capabilities (CAN_ADD / CAN_REMOVE) to another client.
- * Only the owner of the tag is authorized to bestow privileges.
- */
-  def handleAddClientPrivsRequest(request: RequestChannel.Request): Unit = {
-    val req = request.body[AddClientPrivsRequest]
-    val targetClient = req.data.clientId()
-    val tagName = req.data.tagName()
-    val cap = getCapability(req.data.capability())
-    val fromClient = request.context.clientId()
-
-    var error: Errors = Errors.NONE
-    var errorMessage: String = null
-
-    try {
-      info("Handling ADD_CLIENT_PRIVS request")
-      tagRegistrar.addClientPrivsOnRequest(fromClient, targetClient, tagName, cap)
-      errorMessage = s"Granted $cap on '$tagName' to '$targetClient'"
-    }
-    catch {
-      case e: Throwable =>
-        val (err, msg) = difcErrorFromException(e)
-        error = err
-        errorMessage = msg
-    }
-
-    val response = new AddClientPrivsResponse(
-      new AddClientPrivsResponseData()
-        .setErrorCode(error.code)
-        .setErrorMessage(errorMessage)
-    )
-
-    requestHelper.sendMaybeThrottle(request, response)
-  }
-
-  /* Handle a request to revoke tag capabilities (CAN_ADD / CAN_REMOVE) to another client.
-  * Only the owner of the tag is authorized to revoke privileges.
-   */
-  def handleRemoveClientPrivsRequest(request: RequestChannel.Request): Unit = {
-    val req = request.body[AddClientPrivsRequest]
-    val targetClient = req.data.clientId()
-    val tagName = req.data.tagName()
-    val cap = getCapability(req.data.capability())
-    val fromClient = request.context.clientId()
-    
-    var error: Errors = Errors.NONE
-    var errorMessage: String = null
-
-    try {
-      info("Handling REMOVE_CLIENT_PRIVS request")
-      tagRegistrar.removeClientPrivsOnRequest(fromClient, targetClient, tagName, cap)
-      errorMessage = s"Removed $cap on '$tagName' from '$targetClient'"
-    }
-    catch {
-      case e: Throwable =>
-        val (err, msg) = difcErrorFromException(e)
-        error = err
-        errorMessage = msg
-    }
-
-    val response = new AddClientPrivsResponse(
-      new AddClientPrivsResponseData()
-        .setErrorCode(error.code)
-        .setErrorMessage(errorMessage)
-    )
-
-    requestHelper.sendMaybeThrottle(request, response)
-  }
-
-  /* Handle a request to transfer ownership of a tag from the current owner
- * to another client. Only the existing owner of the tag is authorized
- * to perform this operation.
- */
-  def handleGrantOwnerPrivilegesRequest(request: RequestChannel.Request): Unit = {
-    val req = request.body[GrantOwnerPrivilegesRequest]
-    val targetClientId = req.data.clientId()
-    val tagName = req.data.tagName()
-    val fromClientId = request.context.clientId()
-
-    var error: Errors = Errors.NONE
-    var errorMessage: String = null
-
-    try {
-      info("Handling GRANT_OWNER_PRIVILEGES request")
-      tagRegistrar.grantOwnerPrivileges(fromClientId, targetClientId, tagName)
-      errorMessage = s"Ownership of tag '$tagName' transferred to '$targetClientId'"
-    }
-    catch {
-      case e: Throwable =>
-        val (err, msg) = difcErrorFromException(e)
-        error = err
-        errorMessage = msg
-    }
-
-    val response = new GrantOwnerPrivilegesResponse(
-      new GrantOwnerPrivilegesResponseData()
-        .setErrorCode(error.code)
-        .setErrorMessage(errorMessage)
-    )
-
-    requestHelper.sendMaybeThrottle(request, response)
-  }
-
   def handleDummyRequest(request: RequestChannel.Request): Unit = {
     val responseData = new DummyResponseData()
       .setMessage(s"Hello, ${request.context.clientId()} from broker!")
@@ -611,117 +297,80 @@ class KafkaApis(val requestChannel: RequestChannel,
     )
   }
 
+  def handleGetLabelRequest(request: RequestChannel.Request): Unit = {
+    val targetClientId = request.context.principal.getName
 
-  def handleGetTagsRequest(request: RequestChannel.Request): Unit = {
-    val clientId = request.context.clientId()
+    val responseData = new GetLabelResponseData()
+    val clientPrivs = tagRegistrar.getClient(targetClientId)
 
-    var error: Errors = Errors.NONE
-    var errorMessage: String = null
-    var label: util.List[String] = Collections.emptyList[String]()
-
-    try {
-      info("Handling GET_TAGS request")
-      label = tagRegistrar.getTagsForClient(clientId).asScala.toList.asJava
-      errorMessage = s"Tags for client '$clientId' sent successfully"
-    } catch {
-      case e: Throwable =>
-        val (err, msg) = difcErrorFromException(e)
-        error = err
-        errorMessage = msg
+    if (clientPrivs == null)
+    {
+      responseData.setErrorCode(Errors.DIFC_CLIENT_NOT_FOUND.code())
+    }
+    else
+    {
+      responseData.setErrorCode(Errors.NONE.code())
+      // Convert Java Set to Scala Iterable, then to Java List for the generated protocol class
+      responseData.setLabels(clientPrivs.getTags.asScala.toList.asJava)
     }
 
-    val response = new GetLabelResponse(
-      new GetLabelResponseData()
-        .setErrorCode(error.code)
-        .setErrorMessage(errorMessage)
-        .setLabels(label)
-    )
-
-    requestHelper.sendMaybeThrottle(request, response)
+    requestHelper.sendResponseMaybeThrottle(request, requestVersion => new GetLabelResponse(responseData))
   }
 
-  def handleGetAddCapsRequest(request: RequestChannel.Request): Unit = {
-    val clientId = request.context.clientId()
+  def handleGetAddCapabilitiesRequest(request: RequestChannel.Request): Unit = {
+    val targetClientId = request.context.principal.getName
 
-    var error: Errors = Errors.NONE
-    var errorMessage: String = null
-    var tags: util.List[String] = Collections.emptyList[String]()
+    val responseData = new GetPosCapsResponseData()
+    val clientPrivs = tagRegistrar.getClient(targetClientId)
 
-    try {
-      info("Handling GET_POS_CAPS request")
-      tags = tagRegistrar.getPositiveCapacityTagsForClient(clientId).asScala.toList.asJava
-      errorMessage = s"Tags for client '$clientId' sent successfully"
-    } catch {
-      case e: Throwable =>
-        val (err, msg) = difcErrorFromException(e)
-        error = err
-        errorMessage = msg
+    if (clientPrivs == null)
+    {
+      responseData.setErrorCode(Errors.DIFC_CLIENT_NOT_FOUND.code())
+    }
+    else
+    {
+      responseData.setErrorCode(Errors.NONE.code())
+      responseData.setPositiveCapabilities(clientPrivs.getAddCapabilities.asScala.toList.asJava)
     }
 
-    val response = new GetPosCapsResponse(
-      new GetPosCapsResponseData()
-        .setErrorCode(error.code)
-        .setErrorMessage(errorMessage)
-        .setPositiveCapabilities(tags)
-    )
-
-    requestHelper.sendMaybeThrottle(request, response)
+    requestHelper.sendResponseMaybeThrottle(request, requestVersion => new GetPosCapsResponse(responseData))
   }
 
-  def handleGetRemoveCapsRequest(request: RequestChannel.Request): Unit = {
-    val clientId = request.context.clientId()
+  def handleGetRemoveCapabilitiesRequest(request: RequestChannel.Request): Unit = {
+    val responseData = new GetNegCapsResponseData()
+    val targetClientId = request.context.principal.getName
+    val clientPrivs = tagRegistrar.getClient(targetClientId)
 
-    var error: Errors = Errors.NONE
-    var errorMessage: String = null
-    var tags: util.List[String] = Collections.emptyList[String]()
-
-    try {
-      info("Handling GET_NEG_CAPS request")
-      tags = tagRegistrar.getPositiveCapacityTagsForClient(clientId).asScala.toList.asJava
-      errorMessage = s"Tags for client '$clientId' sent successfully"
-    } catch {
-      case e: Throwable =>
-        val (err, msg) = difcErrorFromException(e)
-        error = err
-        errorMessage = msg
+    if (clientPrivs == null)
+    {
+      responseData.setErrorCode(Errors.DIFC_CLIENT_NOT_FOUND.code())
+    }
+    else
+    {
+      responseData.setErrorCode(Errors.NONE.code())
+      responseData.setNegativeCapabilities(clientPrivs.getRemoveCapabilities.asScala.toList.asJava)
     }
 
-    val response = new GetNegCapsResponse(
-      new GetNegCapsResponseData()
-        .setErrorCode(error.code)
-        .setErrorMessage(errorMessage)
-        .setNegativeCapabilities(tags)
-    )
-
-    requestHelper.sendMaybeThrottle(request, response)
+    requestHelper.sendResponseMaybeThrottle(request, requestVersion => new GetNegCapsResponse(responseData))
   }
 
   def handleGetOwnedTagsRequest(request: RequestChannel.Request): Unit = {
-    val clientId = request.context.clientId()
+    val targetClientId = request.context.principal.getName
 
-    var error: Errors = Errors.NONE
-    var errorMessage: String = null
-    var tags: util.List[String] = Collections.emptyList[String]()
+    val responseData = new GetOwnListResponseData()
+    val clientPrivs = tagRegistrar.getClient(targetClientId)
 
-    try {
-      info("Handling GET_OWN_LIST request")
-      tags = tagRegistrar.getPositiveCapacityTagsForClient(clientId).asScala.toList.asJava
-      errorMessage = s"Tags for client '$clientId' sent successfully"
-    } catch {
-      case e: Throwable =>
-        val (err, msg) = difcErrorFromException(e)
-        error = err
-        errorMessage = msg
+    if (clientPrivs == null)
+    {
+      responseData.setErrorCode(Errors.DIFC_CLIENT_NOT_FOUND.code())
+    }
+    else
+    {
+      responseData.setErrorCode(Errors.NONE.code())
+      responseData.setOwnedTags(clientPrivs.getOwnedTags().asScala.toList.asJava)
     }
 
-    val response = new GetNegCapsResponse(
-      new GetNegCapsResponseData()
-        .setErrorCode(error.code)
-        .setErrorMessage(errorMessage)
-        .setNegativeCapabilities(tags)
-    )
-
-    requestHelper.sendMaybeThrottle(request, response)
+    requestHelper.sendResponseMaybeThrottle(request, requestVersion => new GetOwnListResponse(responseData))
   }
 
   /**

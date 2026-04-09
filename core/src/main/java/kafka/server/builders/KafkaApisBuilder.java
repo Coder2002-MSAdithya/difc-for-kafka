@@ -38,6 +38,7 @@ import org.apache.kafka.coordinator.group.GroupCoordinator;
 import org.apache.kafka.coordinator.share.ShareCoordinator;
 import org.apache.kafka.server.ClientMetricsManager;
 import org.apache.kafka.server.authorizer.Authorizer;
+import org.apache.kafka.server.difc.TagRegistrar;
 import org.apache.kafka.storage.log.metrics.BrokerTopicStats;
 
 import java.util.Collections;
@@ -220,6 +221,7 @@ public class KafkaApisBuilder {
                              time,
                              tokenManager,
                              apiVersionManager,
-                             clientMetricsManager);
+                             clientMetricsManager,
+                             new TagRegistrar());
     }
 }
