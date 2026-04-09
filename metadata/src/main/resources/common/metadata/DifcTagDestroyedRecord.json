@@ -5,6 +5,7 @@
   "validVersions": "0",
   "flexibleVersions": "0+",
   "fields": [
-    { "name": "TagName", "type": "string", "versions": "0+", "about": "The name of the tag to be destroyed globally." }
+    { "name": "TagName", "type": "string", "versions": "0+", "about": "The name of the tag to be destroyed globally." },
+    { "name": "OwnerClientId", "type": "string", "versions": "0+", "about":  "The principal/client name of the destroyer"}
   ]
 }

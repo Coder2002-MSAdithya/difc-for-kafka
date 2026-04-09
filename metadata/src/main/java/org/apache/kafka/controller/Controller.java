@@ -20,35 +20,9 @@ package org.apache.kafka.controller;
 import org.apache.kafka.clients.admin.AlterConfigOp;
 import org.apache.kafka.common.Uuid;
 import org.apache.kafka.common.config.ConfigResource;
-import org.apache.kafka.common.message.AllocateProducerIdsRequestData;
-import org.apache.kafka.common.message.AllocateProducerIdsResponseData;
-import org.apache.kafka.common.message.AlterPartitionReassignmentsRequestData;
-import org.apache.kafka.common.message.AlterPartitionReassignmentsResponseData;
-import org.apache.kafka.common.message.AlterPartitionRequestData;
-import org.apache.kafka.common.message.AlterPartitionResponseData;
-import org.apache.kafka.common.message.AlterUserScramCredentialsRequestData;
-import org.apache.kafka.common.message.AlterUserScramCredentialsResponseData;
-import org.apache.kafka.common.message.AssignReplicasToDirsRequestData;
-import org.apache.kafka.common.message.AssignReplicasToDirsResponseData;
-import org.apache.kafka.common.message.BrokerHeartbeatRequestData;
-import org.apache.kafka.common.message.BrokerRegistrationRequestData;
-import org.apache.kafka.common.message.ControllerRegistrationRequestData;
-import org.apache.kafka.common.message.CreateDelegationTokenRequestData;
-import org.apache.kafka.common.message.CreateDelegationTokenResponseData;
+import org.apache.kafka.common.message.*;
 import org.apache.kafka.common.message.CreatePartitionsRequestData.CreatePartitionsTopic;
 import org.apache.kafka.common.message.CreatePartitionsResponseData.CreatePartitionsTopicResult;
-import org.apache.kafka.common.message.CreateTopicsRequestData;
-import org.apache.kafka.common.message.CreateTopicsResponseData;
-import org.apache.kafka.common.message.ElectLeadersRequestData;
-import org.apache.kafka.common.message.ElectLeadersResponseData;
-import org.apache.kafka.common.message.ExpireDelegationTokenRequestData;
-import org.apache.kafka.common.message.ExpireDelegationTokenResponseData;
-import org.apache.kafka.common.message.ListPartitionReassignmentsRequestData;
-import org.apache.kafka.common.message.ListPartitionReassignmentsResponseData;
-import org.apache.kafka.common.message.RenewDelegationTokenRequestData;
-import org.apache.kafka.common.message.RenewDelegationTokenResponseData;
-import org.apache.kafka.common.message.UpdateFeaturesRequestData;
-import org.apache.kafka.common.message.UpdateFeaturesResponseData;
 import org.apache.kafka.common.quota.ClientQuotaAlteration;
 import org.apache.kafka.common.quota.ClientQuotaEntity;
 import org.apache.kafka.common.requests.ApiError;
@@ -56,6 +30,7 @@ import org.apache.kafka.metadata.BrokerHeartbeatReply;
 import org.apache.kafka.metadata.BrokerRegistrationReply;
 import org.apache.kafka.metadata.FinalizedControllerFeatures;
 import org.apache.kafka.metadata.authorizer.AclMutator;
+import org.apache.kafka.server.difc.Capability;
 
 import java.util.Collection;
 import java.util.List;
@@ -442,4 +417,107 @@ public interface Controller extends AclMutator, AutoCloseable {
      * Blocks until we have shut down and freed all resources.
      */
     void close() throws InterruptedException;
+
+    /**
+     * Creates a new DIFC tag.
+     *
+     * @param context       The controller request context.
+     * @param tagName       The name of the tag to create.
+     * @return              A future yielding the response data.
+     */
+    default CompletableFuture<CreateTagResponseData> createDifcTag(ControllerRequestContext context, String tagName) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("DIFC createDifcTag not implemented"));
+    }
+
+    /**
+     * Destroys a DIFC tag and any capabilities of clients associated with it. ONLY the owner of the tag can do this
+     *
+     * @param context The controller request context
+     * @param tagName The name of the tag to destroy
+     * @return A future yielding the response data
+     */
+    default CompletableFuture<DestroyTagResponseData> destroyDifcTag(ControllerRequestContext context, String tagName) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("DIFC destroyDifcTag not implemented"));
+    }
+
+    /**
+     * Registers a new Kafka Principal in our DIFC system
+     *
+     * @param context The controller request context
+     * @return A future yielding the response data
+     */
+    default CompletableFuture<RegisterClientResponseData> registerDifcClient(ControllerRequestContext context) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("DIFC registerDifcClient not implemented"));
+    }
+
+    /**
+     *
+     * @param context The controller request context
+     * @param tagName The name of the tag on which the owner needs to grant a capability
+     * @param capability The type of capability to be granted on the tag. Whether it is CAN_ADD or CAN_REMOVE
+     * @param targetPrincipal The name of the principal to which it is to be granted
+     * @return A future yielding the response data
+     */
+    default CompletableFuture<AddClientPrivsResponseData> addClientDifcPrivs(ControllerRequestContext context, String tagName, String targetPrincipal, Capability capability) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("DIFC addClientDifcPrivs not implemented"));
+    }
+
+    /**
+     *
+     * @param context The controller request context
+     * @param tagName The name of the tag on which the owner needs to grant a capability
+     * @param targetPrincipal The name of the principal to which it is to be granted
+     * @return A future yielding the response data
+     */
+    default CompletableFuture<RemoveClientPrivsResponseData> removeClientDifcPrivs(ControllerRequestContext context, String tagName, String targetPrincipal, Capability capability) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("DIFC removeClientDifcPrivs not implemented"));
+    }
+
+    /**
+     *
+     * @param context The controller request context
+     * @param tagName The tag to be added to the principal's label (If the principal has sufficient privileges)
+     * @return A future yielding the response data
+     */
+    default CompletableFuture<AddTagResponseData> addDifcTagToLabel(ControllerRequestContext context, String tagName) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("DIFC addDifcTagToLabel not implemented"));
+    }
+
+    /**
+     *
+     * @param context The controller request context
+     * @param tagName The tag to be removed from the principal's label (If the principal has sufficient privileges)
+     * @return A future yielding the response data
+     */
+    default CompletableFuture<RemoveTagResponseData> removeDifcTagFromLabel(ControllerRequestContext context, String tagName) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("DIFC removeDifcTagFromLabel not implemented"));
+    }
+
+    /**
+     * Grants owner privileges on a tag to another principal. ONLY the owner of the tag CAN do this
+     *
+     * @param context The controller request context
+     * @param tagName The name of the tag on which owner privileges are to be granted
+     * @param targetPrincipal The name of the Kafka principal to which ownership is to be granted
+     * @return A future yielding the response data
+     */
+    default CompletableFuture<GrantOwnerPrivilegesResponseData> grantOwnerDifcPrivileges(ControllerRequestContext context, String targetPrincipal, String tagName) {
+        return CompletableFuture.failedFuture(new UnsupportedOperationException("DIFC grantOwnerDifcPrivileges not implemented"));
+    }
+
+    default public CompletableFuture<org.apache.kafka.common.message.GrantCapResponseData> enqueueCapabilityRequest(
+            ControllerRequestContext context,
+            String tagName,
+            String capabilityString,
+            String requesterPrincipal
+    ){
+        return  CompletableFuture.failedFuture(new UnsupportedOperationException("enqueueCapabilityRequest not implemented"));
+    }
+
+    default public CompletableFuture<org.apache.kafka.common.message.PollPrivsReqResponseData> pollPendingRequests(
+            ControllerRequestContext context,
+            String clientId
+    ){
+        return  CompletableFuture.failedFuture(new UnsupportedOperationException("pollPendingRequests not implemented"));
+    }
 }

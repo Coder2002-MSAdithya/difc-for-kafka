@@ -17,28 +17,7 @@
 
 package org.apache.kafka.image;
 
-import org.apache.kafka.common.metadata.AccessControlEntryRecord;
-import org.apache.kafka.common.metadata.BrokerRegistrationChangeRecord;
-import org.apache.kafka.common.metadata.ClearElrRecord;
-import org.apache.kafka.common.metadata.ClientQuotaRecord;
-import org.apache.kafka.common.metadata.ConfigRecord;
-import org.apache.kafka.common.metadata.DelegationTokenRecord;
-import org.apache.kafka.common.metadata.FeatureLevelRecord;
-import org.apache.kafka.common.metadata.FenceBrokerRecord;
-import org.apache.kafka.common.metadata.MetadataRecordType;
-import org.apache.kafka.common.metadata.PartitionChangeRecord;
-import org.apache.kafka.common.metadata.PartitionRecord;
-import org.apache.kafka.common.metadata.ProducerIdsRecord;
-import org.apache.kafka.common.metadata.RegisterBrokerRecord;
-import org.apache.kafka.common.metadata.RegisterControllerRecord;
-import org.apache.kafka.common.metadata.RemoveAccessControlEntryRecord;
-import org.apache.kafka.common.metadata.RemoveDelegationTokenRecord;
-import org.apache.kafka.common.metadata.RemoveTopicRecord;
-import org.apache.kafka.common.metadata.RemoveUserScramCredentialRecord;
-import org.apache.kafka.common.metadata.TopicRecord;
-import org.apache.kafka.common.metadata.UnfenceBrokerRecord;
-import org.apache.kafka.common.metadata.UnregisterBrokerRecord;
-import org.apache.kafka.common.metadata.UserScramCredentialRecord;
+import org.apache.kafka.common.metadata.*;
 import org.apache.kafka.common.protocol.ApiMessage;
 import org.apache.kafka.server.common.MetadataVersion;
 
@@ -81,6 +60,22 @@ public final class MetadataDelta {
     private ScramDelta scramDelta = null;
 
     private DelegationTokenDelta delegationTokenDelta = null;
+
+    private DifcDelta difcDelta = null;
+
+    public DifcDelta difcDelta()
+    {
+        return difcDelta;
+    }
+
+    public DifcDelta getOrCreateDifcDelta()
+    {
+        if (difcDelta == null)
+        {
+            difcDelta = new DifcDelta(image.difc());
+        }
+        return difcDelta;
+    }
 
     public MetadataDelta(MetadataImage image) {
         this.image = image;
@@ -257,6 +252,24 @@ public final class MetadataDelta {
             case REGISTER_CONTROLLER_RECORD:
                 replay((RegisterControllerRecord) record);
                 break;
+            case DIFC_TAG_CREATED_RECORD:
+                getOrCreateDifcDelta().replay((DifcTagCreatedRecord) record);
+                break;
+            case DIFC_TAG_DESTROYED_RECORD:
+                getOrCreateDifcDelta().replay((DifcTagDestroyedRecord) record);
+                break;
+            case DIFC_CLIENT_REGISTERED_RECORD:
+                getOrCreateDifcDelta().replay((DifcClientRegisteredRecord) record);
+                break;
+            case DIFC_CLIENT_LABEL_CHANGED_RECORD:
+                getOrCreateDifcDelta().replay((DifcClientLabelChangedRecord) record);
+                break;
+            case DIFC_CLIENT_PRIVILEGE_CHANGED_RECORD:
+                getOrCreateDifcDelta().replay((DifcClientPrivilegeChangedRecord) record);
+                break;
+            case DIFC_TAG_OWNERSHIP_TRANSFERRED_RECORD:
+                getOrCreateDifcDelta().replay((DifcTagOwnershipTransferredRecord) record);
+                break;
             default:
                 throw new RuntimeException("Unknown metadata record type " + type);
         }
@@ -429,6 +442,13 @@ public final class MetadataDelta {
         } else {
             newDelegationTokens = delegationTokenDelta.apply();
         }
+        DifcImage newDifc;
+        if (difcDelta == null) {
+            newDifc = image.difc();
+        }
+        else {
+            newDifc = difcDelta.apply();
+        }
         return new MetadataImage(
             provenance,
             newFeatures,
@@ -439,7 +459,8 @@ public final class MetadataDelta {
             newProducerIds,
             newAcls,
             newScram,
-            newDelegationTokens
+            newDelegationTokens,
+            newDifc
         );
     }
 
@@ -455,6 +476,7 @@ public final class MetadataDelta {
             ", aclsDelta=" + aclsDelta +
             ", scramDelta=" + scramDelta +
             ", delegationTokenDelta=" + delegationTokenDelta +
+            ",  difcDelta=" + difcDelta +
             ')';
     }
 }

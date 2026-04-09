@@ -18,18 +18,7 @@
 package org.apache.kafka.controller.metrics;
 
 import org.apache.kafka.common.Uuid;
-import org.apache.kafka.image.AclsImage;
-import org.apache.kafka.image.ClientQuotasImage;
-import org.apache.kafka.image.ClusterImage;
-import org.apache.kafka.image.ConfigurationsImage;
-import org.apache.kafka.image.DelegationTokenImage;
-import org.apache.kafka.image.FeaturesImage;
-import org.apache.kafka.image.MetadataDelta;
-import org.apache.kafka.image.MetadataImage;
-import org.apache.kafka.image.MetadataProvenance;
-import org.apache.kafka.image.ProducerIdsImage;
-import org.apache.kafka.image.ScramImage;
-import org.apache.kafka.image.TopicsImage;
+import org.apache.kafka.image.*;
 import org.apache.kafka.image.loader.LoaderManifest;
 import org.apache.kafka.image.loader.LogDeltaManifest;
 import org.apache.kafka.image.loader.SnapshotManifest;
@@ -90,7 +79,7 @@ public class ControllerMetadataMetricsPublisherTest {
             ProducerIdsImage.EMPTY,
             AclsImage.EMPTY,
             ScramImage.EMPTY,
-            DelegationTokenImage.EMPTY);
+            DelegationTokenImage.EMPTY, DifcImage.EMPTY);
     }
 
     static final TopicsImage TOPICS_IMAGE1;

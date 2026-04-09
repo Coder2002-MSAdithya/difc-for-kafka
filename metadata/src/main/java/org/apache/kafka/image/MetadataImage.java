@@ -41,7 +41,8 @@ public final class MetadataImage {
         ProducerIdsImage.EMPTY,
         AclsImage.EMPTY,
         ScramImage.EMPTY,
-        DelegationTokenImage.EMPTY);
+        DelegationTokenImage.EMPTY,
+            DifcImage.EMPTY);
 
     private final MetadataProvenance provenance;
 
@@ -63,6 +64,8 @@ public final class MetadataImage {
 
     private final DelegationTokenImage delegationTokens;
 
+    private final DifcImage difc;
+
     public MetadataImage(
         MetadataProvenance provenance,
         FeaturesImage features,
@@ -73,7 +76,8 @@ public final class MetadataImage {
         ProducerIdsImage producerIds,
         AclsImage acls,
         ScramImage scram,
-        DelegationTokenImage delegationTokens
+        DelegationTokenImage delegationTokens,
+        DifcImage difc
     ) {
         this.provenance = provenance;
         this.features = features;
@@ -84,6 +88,7 @@ public final class MetadataImage {
         this.producerIds = producerIds;
         this.acls = acls;
         this.scram = scram;
+        this.difc = difc;
         this.delegationTokens = delegationTokens;
     }
 
@@ -96,7 +101,12 @@ public final class MetadataImage {
             producerIds.isEmpty() &&
             acls.isEmpty() &&
             scram.isEmpty() &&
-            delegationTokens.isEmpty();
+            delegationTokens.isEmpty() && difc.isEmpty();
+    }
+
+    public DifcImage difc()
+    {
+        return difc;
     }
 
     public MetadataProvenance provenance() {
@@ -175,7 +185,7 @@ public final class MetadataImage {
             producerIds.equals(other.producerIds) &&
             acls.equals(other.acls) &&
             scram.equals(other.scram) &&
-            delegationTokens.equals(other.delegationTokens);
+            delegationTokens.equals(other.delegationTokens) && difc.equals(other.difc);
     }
 
     @Override
@@ -190,7 +200,7 @@ public final class MetadataImage {
             producerIds,
             acls,
             scram,
-            delegationTokens);
+            delegationTokens, difc);
     }
 
     @Override

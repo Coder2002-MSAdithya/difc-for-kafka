@@ -28,61 +28,10 @@ import org.apache.kafka.common.errors.BrokerIdNotRegisteredException;
 import org.apache.kafka.common.errors.InvalidRequestException;
 import org.apache.kafka.common.errors.StaleBrokerEpochException;
 import org.apache.kafka.common.errors.UnknownTopicOrPartitionException;
-import org.apache.kafka.common.message.AllocateProducerIdsRequestData;
-import org.apache.kafka.common.message.AllocateProducerIdsResponseData;
-import org.apache.kafka.common.message.AlterPartitionReassignmentsRequestData;
-import org.apache.kafka.common.message.AlterPartitionReassignmentsResponseData;
-import org.apache.kafka.common.message.AlterPartitionRequestData;
-import org.apache.kafka.common.message.AlterPartitionResponseData;
-import org.apache.kafka.common.message.AlterUserScramCredentialsRequestData;
-import org.apache.kafka.common.message.AlterUserScramCredentialsResponseData;
-import org.apache.kafka.common.message.AssignReplicasToDirsRequestData;
-import org.apache.kafka.common.message.AssignReplicasToDirsResponseData;
-import org.apache.kafka.common.message.BrokerHeartbeatRequestData;
-import org.apache.kafka.common.message.BrokerRegistrationRequestData;
-import org.apache.kafka.common.message.ControllerRegistrationRequestData;
-import org.apache.kafka.common.message.CreateDelegationTokenRequestData;
-import org.apache.kafka.common.message.CreateDelegationTokenResponseData;
+import org.apache.kafka.common.message.*;
 import org.apache.kafka.common.message.CreatePartitionsRequestData.CreatePartitionsTopic;
 import org.apache.kafka.common.message.CreatePartitionsResponseData.CreatePartitionsTopicResult;
-import org.apache.kafka.common.message.CreateTopicsRequestData;
-import org.apache.kafka.common.message.CreateTopicsResponseData;
-import org.apache.kafka.common.message.ElectLeadersRequestData;
-import org.apache.kafka.common.message.ElectLeadersResponseData;
-import org.apache.kafka.common.message.ExpireDelegationTokenRequestData;
-import org.apache.kafka.common.message.ExpireDelegationTokenResponseData;
-import org.apache.kafka.common.message.ListPartitionReassignmentsRequestData;
-import org.apache.kafka.common.message.ListPartitionReassignmentsResponseData;
-import org.apache.kafka.common.message.RenewDelegationTokenRequestData;
-import org.apache.kafka.common.message.RenewDelegationTokenResponseData;
-import org.apache.kafka.common.message.UpdateFeaturesRequestData;
-import org.apache.kafka.common.message.UpdateFeaturesResponseData;
-import org.apache.kafka.common.metadata.AbortTransactionRecord;
-import org.apache.kafka.common.metadata.AccessControlEntryRecord;
-import org.apache.kafka.common.metadata.BeginTransactionRecord;
-import org.apache.kafka.common.metadata.BrokerRegistrationChangeRecord;
-import org.apache.kafka.common.metadata.ClearElrRecord;
-import org.apache.kafka.common.metadata.ClientQuotaRecord;
-import org.apache.kafka.common.metadata.ConfigRecord;
-import org.apache.kafka.common.metadata.DelegationTokenRecord;
-import org.apache.kafka.common.metadata.EndTransactionRecord;
-import org.apache.kafka.common.metadata.FeatureLevelRecord;
-import org.apache.kafka.common.metadata.FenceBrokerRecord;
-import org.apache.kafka.common.metadata.MetadataRecordType;
-import org.apache.kafka.common.metadata.NoOpRecord;
-import org.apache.kafka.common.metadata.PartitionChangeRecord;
-import org.apache.kafka.common.metadata.PartitionRecord;
-import org.apache.kafka.common.metadata.ProducerIdsRecord;
-import org.apache.kafka.common.metadata.RegisterBrokerRecord;
-import org.apache.kafka.common.metadata.RegisterControllerRecord;
-import org.apache.kafka.common.metadata.RemoveAccessControlEntryRecord;
-import org.apache.kafka.common.metadata.RemoveDelegationTokenRecord;
-import org.apache.kafka.common.metadata.RemoveTopicRecord;
-import org.apache.kafka.common.metadata.RemoveUserScramCredentialRecord;
-import org.apache.kafka.common.metadata.TopicRecord;
-import org.apache.kafka.common.metadata.UnfenceBrokerRecord;
-import org.apache.kafka.common.metadata.UnregisterBrokerRecord;
-import org.apache.kafka.common.metadata.UserScramCredentialRecord;
+import org.apache.kafka.common.metadata.*;
 import org.apache.kafka.common.protocol.ApiMessage;
 import org.apache.kafka.common.quota.ClientQuotaAlteration;
 import org.apache.kafka.common.quota.ClientQuotaEntity;
@@ -117,6 +66,7 @@ import org.apache.kafka.server.authorizer.AclCreateResult;
 import org.apache.kafka.server.authorizer.AclDeleteResult;
 import org.apache.kafka.server.common.ApiMessageAndVersion;
 import org.apache.kafka.server.common.KRaftVersion;
+import org.apache.kafka.server.difc.Capability;
 import org.apache.kafka.server.fault.FaultHandler;
 import org.apache.kafka.server.fault.FaultHandlerException;
 import org.apache.kafka.server.policy.AlterConfigPolicy;
@@ -458,6 +408,91 @@ public final class QuorumController implements Controller {
                 throw e;
             }
         }
+    }
+
+    @Override
+    public CompletableFuture<RegisterClientResponseData> registerDifcClient(ControllerRequestContext context)
+    {
+        // Extract the principal name from the request context
+        String principalName = context.principal().getName();
+
+        return appendWriteEvent("registerDifcClient", context.deadlineNs(), () -> {
+            return difcControlManager.registerDifcClient(principalName);
+        });
+    }
+
+    @Override
+    public CompletableFuture<CreateTagResponseData> createDifcTag(ControllerRequestContext context, String tagName)
+    {
+        // Extract principal name from context as the owner
+        String ownerId = context.principal().getName();
+
+        return appendWriteEvent("createDifcTag", context.deadlineNs(),
+                () -> difcControlManager.createDifcTag(tagName, ownerId));
+    }
+
+    @Override
+    public CompletableFuture<DestroyTagResponseData> destroyDifcTag(ControllerRequestContext context, String tagName)
+    {
+        String principalName = context.principal().getName();
+        return appendWriteEvent("destroyDifcTag", context.deadlineNs(), () -> difcControlManager.destroyDifcTag(tagName, principalName));
+    }
+
+    @Override
+    public CompletableFuture<AddTagResponseData> addDifcTagToLabel(ControllerRequestContext context, String tagName)
+    {
+        String principalName = context.principal().getName();
+        return appendWriteEvent("addDifcTagToLabel", context.deadlineNs(), () -> difcControlManager.addDifcTag(tagName, principalName));
+    }
+
+    @Override
+    public CompletableFuture<RemoveTagResponseData> removeDifcTagFromLabel(ControllerRequestContext context, String tagName)
+    {
+        String principalName = context.principal().getName();
+        return appendWriteEvent("removeDifcTagFromLabel", context.deadlineNs(), () -> difcControlManager.removeDifcTag(tagName, principalName));
+    }
+
+    @Override
+    public CompletableFuture<AddClientPrivsResponseData> addClientDifcPrivs(ControllerRequestContext context, String tagName, String targetPrincipal, Capability capability)
+    {
+        String principalName = context.principal().getName();
+        return appendWriteEvent("addDifcPrivs", context.deadlineNs(), () -> difcControlManager.addDifcClientPrivs(principalName, targetPrincipal, tagName, capability));
+    }
+
+    @Override
+    public CompletableFuture<RemoveClientPrivsResponseData> removeClientDifcPrivs(ControllerRequestContext context, String tagName, String targetPrincipal, Capability capability)
+    {
+        String principalName = context.principal().getName();
+        return appendWriteEvent("removeDifcPrivs", context.deadlineNs(), () -> difcControlManager.removeDifcClientPrivs(principalName, targetPrincipal, tagName, capability));
+    }
+
+    @Override
+    public CompletableFuture<GrantOwnerPrivilegesResponseData> grantOwnerDifcPrivileges(ControllerRequestContext context, String targetPrincipal, String tagName)
+    {
+        String principalName = context.principal().getName();
+        return appendWriteEvent("grantDifcOwnerPrivileges", context.deadlineNs(), () -> difcControlManager.grantOwnerPrivileges(principalName, targetPrincipal, tagName));
+    }
+
+    @Override
+    public CompletableFuture<org.apache.kafka.common.message.GrantCapResponseData> enqueueCapabilityRequest(
+            ControllerRequestContext context,
+            String tagName,
+            String capabilityString,
+            String requesterPrincipal
+    ) {
+        return appendWriteEvent("enqueueCapabilityRequest", context.deadlineNs(),
+                () -> difcControlManager.enqueueCapabilityRequest(tagName, capabilityString, requesterPrincipal));
+    }
+
+    @Override
+    public CompletableFuture<org.apache.kafka.common.message.PollPrivsReqResponseData> pollPendingRequests(
+            ControllerRequestContext context,
+            String clientId
+    ) {
+        // Even though polling feels like a "Read", it pops an element off the queue,
+        // which mutates memory. Therefore, it MUST be an appendWriteEvent to be thread-safe!
+        return appendWriteEvent("pollPendingRequests", context.deadlineNs(),
+                () -> difcControlManager.pollPendingRequests(clientId));
     }
 
     /**
@@ -1296,6 +1331,26 @@ public final class QuorumController implements Controller {
             case CLEAR_ELR_RECORD:
                 replicationControl.replay((ClearElrRecord) message);
                 break;
+            case DIFC_TAG_CREATED_RECORD:
+                log.info(message.toString());
+                difcControlManager.replay((DifcTagCreatedRecord) message);
+                break;
+            case DIFC_CLIENT_REGISTERED_RECORD:
+                 log.info(message.toString());
+                 difcControlManager.replay((DifcClientRegisteredRecord) message);
+                 break;
+            case DIFC_TAG_DESTROYED_RECORD:
+                difcControlManager.replay((DifcTagDestroyedRecord) message);
+                break;
+            case DIFC_CLIENT_LABEL_CHANGED_RECORD:
+                difcControlManager.replay((DifcClientLabelChangedRecord) message);
+                break;
+            case DIFC_CLIENT_PRIVILEGE_CHANGED_RECORD:
+                difcControlManager.replay((DifcClientPrivilegeChangedRecord) message);
+                break;
+            case DIFC_TAG_OWNERSHIP_TRANSFERRED_RECORD:
+                difcControlManager.replay((DifcTagOwnershipTransferredRecord) message);
+                break;
             default:
                 throw new RuntimeException("Unhandled record type " + type);
         }
@@ -1476,6 +1531,12 @@ public final class QuorumController implements Controller {
      */
     private final EventPerformanceMonitor performanceMonitor;
 
+
+    /**
+     * Manages DIFC privileges of various Kafka clients in a Kafka cluster
+     */
+    private final DifcControlManager difcControlManager;
+
     private QuorumController(
         FaultHandler nonFatalFaultHandler,
         FaultHandler fatalFaultHandler,
@@ -1628,6 +1689,7 @@ public final class QuorumController implements Controller {
             setMetrics(controllerMetrics).
             setTime(time).
             build();
+        this.difcControlManager = new DifcControlManager();
         log.info("Creating new QuorumController with clusterId {}", clusterId);
         this.raftClient.register(metaLogListener);
     }

@@ -18,18 +18,7 @@
 package org.apache.kafka.image.writer;
 
 import org.apache.kafka.common.metadata.FeatureLevelRecord;
-import org.apache.kafka.image.AclsImageTest;
-import org.apache.kafka.image.ClientQuotasImageTest;
-import org.apache.kafka.image.ClusterImageTest;
-import org.apache.kafka.image.ConfigurationsImageTest;
-import org.apache.kafka.image.DelegationTokenImageTest;
-import org.apache.kafka.image.FeaturesDelta;
-import org.apache.kafka.image.FeaturesImage;
-import org.apache.kafka.image.MetadataImage;
-import org.apache.kafka.image.MetadataProvenance;
-import org.apache.kafka.image.ProducerIdsImageTest;
-import org.apache.kafka.image.ScramImageTest;
-import org.apache.kafka.image.TopicsImageTest;
+import org.apache.kafka.image.*;
 import org.apache.kafka.server.common.EligibleLeaderReplicasVersion;
 import org.apache.kafka.server.common.MetadataVersion;
 
@@ -105,7 +94,7 @@ public class ImageWriterOptionsTest {
             ProducerIdsImageTest.IMAGE1,
             AclsImageTest.IMAGE1,
             ScramImageTest.IMAGE1,
-            DelegationTokenImageTest.IMAGE1
+            DelegationTokenImageTest.IMAGE1, DifcImage.EMPTY
         );
 
         ImageWriterOptions options = new ImageWriterOptions.Builder(metadataImage).build();
