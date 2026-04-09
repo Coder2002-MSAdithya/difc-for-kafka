@@ -5,10 +5,11 @@ import org.apache.kafka.common.serialization.StringSerializer;
 
 import java.util.*;
 
-public class TaggedProducerTest {
+public class TaggedProducerTest
+{
 
-    public static void main(String[] args) throws Exception {
-
+    public static void main(String[] args) throws Exception
+    {
         Properties props = new Properties();
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());
@@ -18,6 +19,10 @@ public class TaggedProducerTest {
         KafkaProducer<String, String> producer = new KafkaProducer<>(props);
 
         String topic = "difc-test";
+
+         System.out.println(producer.getOwnedTags().ownedTags());
+//        System.out.println(producer.registerClient().errorCode());
+//        System.out.println(producer.destroyTag("finance").errorCode());
 
         // ---- messages with tags ----
         producer.sendWithTags(
