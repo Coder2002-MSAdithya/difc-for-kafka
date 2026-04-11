@@ -1313,4 +1313,9 @@ public class KStreamImpl<K, V> extends AbstractStream<K, V> implements KStream<K
                 Named.as("declassify-tags")
         );
     }
+
+    @Override
+    public KStream<K, V> ignoreNullValues() {
+        return filter((key, value) -> value != null, Named.as("ignore-null-values"));
+    }
 }

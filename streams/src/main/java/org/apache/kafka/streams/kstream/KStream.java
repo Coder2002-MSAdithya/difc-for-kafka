@@ -3388,4 +3388,11 @@ public interface KStream<K, V> {
      * @return a new {@link KStream} with the header added
      */
     KStream<K, V> declassifyTags(Set<String> tags);
+
+    /**
+     * Filters out records whose value is {@code null}.
+     *
+     * @return a new {@link KStream} that forwards only records with non-null values
+     */
+    KStream<K, V> ignoreNullValues();
 }
