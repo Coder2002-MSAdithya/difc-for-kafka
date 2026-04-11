@@ -20,8 +20,13 @@ public class TaggedProducerTest
 
         String topic = "difc-test";
 
-         System.out.println(producer.getOwnedTags().ownedTags());
-//        System.out.println(producer.registerClient().errorCode());
+        System.out.println(producer.registerClient().errorMessage());
+        System.out.println(producer.createTag("secret").errorMessage());
+        System.out.println(producer.createTag("pii").errorMessage());
+        System.out.println(producer.createTag("internal").errorMessage());
+        System.out.println(producer.createTag("finance").errorMessage());
+        System.out.println(producer.getOwnedTags().ownedTags());
+
 //        System.out.println(producer.destroyTag("finance").errorCode());
 
         // ---- messages with tags ----

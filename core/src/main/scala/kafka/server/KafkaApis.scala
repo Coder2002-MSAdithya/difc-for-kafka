@@ -486,31 +486,18 @@ class KafkaApis(val requestChannel: RequestChannel,
     LeaderNode(leaderId, leaderEpoch, metadataCache.getAliveBrokerNode(leaderId, ln))
   }
 
-  private def estimatedExtraBytesPerRecord(senderTags: Set[String],
-                                            maxExistingTagLength: Int = 64
-                                          ): Int = {
-    // key "tags" + ":" separated values
-    val keyBytes = "tags".getBytes(StandardCharsets.UTF_8).length
-    val valueBytes =
-      senderTags.mkString(":").getBytes(StandardCharsets.UTF_8).length +
-        maxExistingTagLength
-    // conservative varint overhead
-    keyBytes + valueBytes + 16
-  }
-
   private def rewriteRecordsByBatch(records: MemoryRecords, estimateBatchSize: RecordBatch => Int)(rewriteRecord: (Record, MemoryRecordsBuilder) => Unit): MemoryRecords = {
     val batchIter = records.batches().iterator()
     if (!batchIter.hasNext)
       return records
 
     val rewrittenBatches = new java.util.ArrayList[MemoryRecords]()
-    var totalEstimatedSize = 0
+    var totalRewrittenSize = 0
 
     while (batchIter.hasNext) {
       val batch = batchIter.next()
 
       val estimatedSize = estimateBatchSize(batch)
-      totalEstimatedSize += estimatedSize
 
       val buffer = ByteBuffer.allocate(estimatedSize)
 
@@ -541,10 +528,12 @@ class KafkaApis(val requestChannel: RequestChannel,
       if (batch.magic() >= RecordBatch.MAGIC_VALUE_V2)
         builder.overrideLastOffset(batch.lastOffset())
 
-      rewrittenBatches.add(builder.build())
+      val rewrittenBatch = builder.build()
+      rewrittenBatches.add(rewrittenBatch)
+      totalRewrittenSize += rewrittenBatch.sizeInBytes()
     }
 
-    val outputBuffer = ByteBuffer.allocate(totalEstimatedSize)
+    val outputBuffer = ByteBuffer.allocate(totalRewrittenSize)
     rewrittenBatches.forEach { b =>
       b.buffer().rewind()
       outputBuffer.put(b.buffer())
@@ -598,19 +587,8 @@ class KafkaApis(val requestChannel: RequestChannel,
 
   def rewriteTagsInRecords(records: MemoryRecords,
                            senderClientId: String): MemoryRecords = {
-
     val senderTags = tagRegistrar.getTagsForClient(senderClientId).asScala
-    val extraPerRecord = estimatedExtraBytesPerRecord(senderTags)
-
-    rewriteRecordsByBatch(records, batch => {
-      val count = {
-        var c = 0
-        val it = batch.iterator()
-        while (it.hasNext) { it.next(); c += 1 }
-        c
-      }
-      batch.sizeInBytes() + (count * extraPerRecord)
-    }) { (record, builder) =>
+    rewriteRecordsByBatch(records, batch => batch.sizeInBytes()) { (record, builder) =>
       val messageTags = extractFirstTags(record).filter(tagRegistrar.getTag(_) >= 0)
       val allowedRemovals = allowedDeclassifyTags(record, senderClientId)
       val combinedTags = (senderTags ++ messageTags) -- allowedRemovals
@@ -630,7 +608,7 @@ class KafkaApis(val requestChannel: RequestChannel,
   }
 
   private def filterUnauthorizedRecords(records: MemoryRecords, receiverClientId: String, tagRegistrar: TagRegistrar): MemoryRecords = {
-    rewriteRecordsByBatch(records, batch => batch.sizeInBytes() + 256) { (record, builder) =>
+    rewriteRecordsByBatch(records, batch => batch.sizeInBytes()) { (record, builder) =>
         val messageTags = extractFirstTags(record)
         val canReceive = tagRegistrar.canClientReceive(receiverClientId, messageTags.asJava)
         if (canReceive)
