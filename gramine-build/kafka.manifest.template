@@ -1,0 +1,56 @@
+# kafka.manifest.template
+
+# 1. The Entrypoint: Java 21
+loader.entrypoint.uri = "file:{{ gramine.libos }}"
+loader.insecure__use_cmdline_argv = true
+libos.entrypoint = "/usr/lib/jvm/java-21-openjdk-amd64/bin/java"
+
+loader.log_level = "error"
+loader.env.LD_LIBRARY_PATH = "/lib:/usr/lib:/lib/x86_64-linux-gnu:/usr/lib/x86_64-linux-gnu"
+loader.env.PATH = "/bin:/usr/bin"
+
+# 2. Network Attestation Interception (Mutual Trust)
+loader.env.LD_PRELOAD = "libsecret_prov_attest.so"
+loader.env.RA_TLS_CLIENT_AUTH = "require"
+loader.env.RA_TLS_ALLOW_MRSIGNER = "ddf2b3a8c78a4d5d997900764e09511193a49dd74bdef218d6f1eaf53adff64d"
+
+# 3. Virtual File System (Mapping Host -> Enclave)
+fs.mounts = [
+  { path = "/lib", uri = "file:{{ gramine.runtimedir() }}" },
+  { path = "/usr/lib", uri = "file:/usr/lib" },
+  { path = "/usr/lib/jvm", uri = "file:/usr/lib/jvm" },
+  { path = "/opt/kafka", uri = "file:/home/adithya_ms/Desktop/difc-for-kafka" },
+  # NEW: Map the KRaft metadata storage directory into the vault
+  { path = "/tmp/kraft-node1-logs", uri = "file:/tmp/kraft-node1-logs" }, 
+]
+
+# 4. CODE INTEGRITY (The MRENCLAVE Boundary)
+sgx.trusted_files = [
+  "file:{{ gramine.libos }}",
+  "file:{{ gramine.runtimedir() }}/",
+  
+  # Lock the Java 21 binaries and core libraries
+  "file:/usr/lib/jvm/java-21-openjdk-amd64/bin/java",
+  "file:/usr/lib/jvm/java-21-openjdk-amd64/lib/",
+  "file:/usr/lib/jvm/java-21-openjdk-amd64/conf/",
+
+  "file:/lib/x86_64-linux-gnu/",
+  "file:/usr/lib/x86_64-linux-gnu/", 
+  
+  # Lock your compiled Kafka and DIFC JARs
+  # "file:/home/adithya_ms/Desktop/difc-for-kafka/build/libs/",
+  "file:/home/adithya_ms/Desktop/difc-for-kafka/core/build/distributions/kafka_2.13-4.0.0/libs/",
+  "file:kafka.manifest.template",
+]
+
+# 5. DYNAMIC CONFIGS (Passed through, NOT hashed)
+sgx.allowed_files = [
+  "file:/home/adithya_ms/Desktop/difc-for-kafka/config/", 
+  "file:/etc/hosts",
+  "file:/etc/resolv.conf",
+  "file:/tmp/",
+]
+
+# 6. Resource Allocation
+sgx.enclave_size = "256M" 
+sgx.max_threads = 128
