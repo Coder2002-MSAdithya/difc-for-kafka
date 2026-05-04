@@ -68,6 +68,15 @@ if [ -z "$UPGRADE_KAFKA_STREAMS_TEST_VERSION" ]; then
   done
 fi
 
+# If Gradle is configured to place all jar outputs in root build/libs,
+# this single scan makes every launcher pick them up.
+for file in "$base_dir"/build/libs/*.jar;
+do
+  if should_include_file "$file"; then
+    CLASSPATH="$CLASSPATH":"$file"
+  fi
+done
+
 for file in "$base_dir"/examples/build/libs/kafka-examples*.jar;
 do
   if should_include_file "$file"; then

@@ -47,6 +47,12 @@ for %%i in ("%BASE_DIR%\core\build\dependant-libs-%SCALA_VERSION%\*.jar") do (
 	call :concat "%%i"
 )
 
+rem Consolidated Gradle jar output support (all project jars under root build\libs).
+for %%i in ("%BASE_DIR%\build\libs\*.jar") do (
+	call :concat "%%i"
+)
+
+
 rem Classpath addition for kafka-examples
 for %%i in ("%BASE_DIR%\examples\build\libs\kafka-examples*.jar") do (
 	call :concat "%%i"
