@@ -10,10 +10,8 @@ repositories {
 }
 
 dependencies {
-    implementation 'net.bytebuddy:byte-buddy:1.14.18'
-    implementation 'net.bytebuddy:byte-buddy-agent:1.14.18'
-    // Needed because byte-buddy classes reference edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
-    // with -Werror enabled, missing annotation types become hard compilation failures.
+    implementation('net.bytebuddy:byte-buddy:1.14.12')
+    implementation('net.bytebuddy:byte-buddy-agent:1.14.12')
     compileOnly 'com.github.spotbugs:spotbugs-annotations:4.8.6'
 }
 
@@ -44,5 +42,12 @@ tasks.jar {
                 'Can-Redefine-Classes': 'true',
                 'Can-Retransform-Classes': 'true'
         )
+    }
+}
+
+configurations.configureEach {
+    resolutionStrategy {
+        force 'net.bytebuddy:byte-buddy:1.14.12'
+        force 'net.bytebuddy:byte-buddy-agent:1.14.12'
     }
 }

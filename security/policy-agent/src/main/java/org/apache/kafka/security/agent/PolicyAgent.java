@@ -1,209 +1,301 @@
 package org.apache.kafka.security.agent;
 
 import net.bytebuddy.agent.builder.AgentBuilder;
-import net.bytebuddy.asm.Advice;
-import net.bytebuddy.matcher.ElementMatchers;
-
-import net.bytebuddy.dynamic.loading.ClassInjector;
-import net.bytebuddy.description.type.TypeDescription;
-import net.bytebuddy.dynamic.ClassFileLocator;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.lang.instrument.Instrumentation;
 import java.nio.file.Files;
-import java.util.Map;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
+import java.util.jar.JarOutputStream;
 
-public final class PolicyAgent {
+import static net.bytebuddy.matcher.ElementMatchers.*;
 
-    private PolicyAgent() {}
+public class PolicyAgent {
 
-    // 🔐 Mode is now private
-    public enum Mode {
-        DEV,
-        PROD
-    }
+    public static void premain(String agentArgs,
+                               Instrumentation inst) {
 
-    private static Mode MODE = Mode.DEV;
+        System.out.println("[policy-agent] premain loaded");
 
-    public static Mode getMode()
-    {
-        return MODE;
-    }
+        try {
 
-    public static void premain(String args, Instrumentation instrumentation)
-    {
-        System.err.println("[policy-agent] premain loaded. args=" + args);
+            File tempJar =
+                    Files.createTempFile(
+                            "policy-agent-bootstrap",
+                            ".jar"
+                    ).toFile();
 
-        try
-        {
-            // ================= MODE PARSING =================
-            if (args != null && args.contains("mode=prod"))
-            {
-                MODE = Mode.PROD;
+            try (JarOutputStream jos =
+                         new JarOutputStream(
+                                 new FileOutputStream(tempJar))) {
+
+                addClassToJar(jos, SocketAdvice.class);
+
+                addClassToJar(
+                        jos,
+                        SocketAdvice.KafkaClientCtorAdvice.class
+                );
+
+                addClassToJar(
+                        jos,
+                        SocketAdvice.StreamsInternalRegionAdvice.class
+                );
+
+                addClassToJar(
+                        jos,
+                        SocketAdvice.StreamsLogicalClientAdvice.class
+                );
+
+                addClassToJar(
+                        jos,
+                        SocketAdvice.StreamsTopologyAdvice.class
+                );
+
+                addClassToJar(
+                        jos,
+                        SocketAdvice.ForbidProcessorApiAdvice.class
+                );
+
+                addClassToJar(
+                        jos,
+                        SocketAdvice.SocketConnectAdvice.class
+                );
+
+                addClassToJar(
+                        jos,
+                        SocketAdvice.SocketChannelConnectAdvice.class
+                );
+
+                addClassToJar(
+                        jos,
+                        org.apache.kafka.security.agent.bootstrap.internal
+                                .SocketPolicyBootstrap.class
+                );
+
+                addClassToJar(
+                        jos,
+                        org.apache.kafka.security.agent.bootstrap.internal
+                                .SocketPolicyBootstrap.KafkaClientType.class
+                );
             }
-            else
-            {
-                MODE = Mode.DEV;
-            }
 
-            System.err.println("[policy-agent] MODE = " + MODE);
-
-            // ================= BOOTSTRAP INJECTION =================
-
-            File temp = Files.createTempDirectory("bb-bootstrap").toFile();
-
-            ClassInjector injector =
-                    ClassInjector.UsingInstrumentation.of(
-                            temp,
-                            ClassInjector.UsingInstrumentation.Target.BOOTSTRAP,
-                            instrumentation
-                    );
-
-            Map<TypeDescription, byte[]> toInject = new java.util.HashMap<>();
-
-            // ---- Bootstrap policy class ----
-            toInject.put(
-                    TypeDescription.ForLoadedType.of(
-                            org.apache.kafka.security.agent.bootstrap.internal.SocketPolicyBootstrap.class
-                    ),
-                    ClassFileLocator.ForClassLoader.read(
-                            org.apache.kafka.security.agent.bootstrap.internal.SocketPolicyBootstrap.class
-                    )
+            inst.appendToBootstrapClassLoaderSearch(
+                    new JarFile(tempJar)
             );
 
-            // ---- ALSO inject SocketAdvice ----
-            toInject.put(
-                    TypeDescription.ForLoadedType.of(
-                            org.apache.kafka.security.agent.SocketAdvice.class
-                    ),
-                    ClassFileLocator.ForClassLoader.read(
-                            org.apache.kafka.security.agent.SocketAdvice.class
-                    )
-            );
+            AgentBuilder agentBuilder =
+                    new AgentBuilder.Default()
 
-            injector.inject(toInject);
+                            .ignore(
+                                    nameStartsWith("net.bytebuddy.")
+                                            .or(nameStartsWith("sun.reflect"))
+                                            .or(nameStartsWith("jdk.internal.reflect"))
+                            );
 
-            // ================= PASS MODE TO BOOTSTRAP =================
-            Class<?> bootstrap =
-                    Class.forName(
-                            "org.apache.kafka.security.agent.bootstrap.internal.SocketPolicyBootstrap",
-                            true,
-                            null // bootstrap classloader
-                    );
+            // ========================================================
+            // KafkaProducer
+            // ========================================================
 
-            bootstrap.getMethod("setMode", String.class)
-                    .invoke(null, MODE.name());
+            agentBuilder =
+                    agentBuilder
+                            .type(
+                                    named(
+                                            "org.apache.kafka.clients.producer.KafkaProducer"
+                                    )
+                            )
+                            .transform((b, td, cl, m, pd) ->
+                                    b.visit(
+                                            net.bytebuddy.asm.Advice.to(
+                                                            SocketAdvice
+                                                                    .KafkaClientCtorAdvice.class
+                                                    )
+                                                    .on(isConstructor())
+                                    )
+                            );
 
-            // ================= AGENT BUILDER =================
-            AgentBuilder builder = new AgentBuilder.Default()
-                    .with(new AgentBuilder.InjectionStrategy.UsingInstrumentation(instrumentation, temp))
-                    .ignore(ElementMatchers.none())
-                    .disableClassFormatChanges()
-                    .with(AgentBuilder.RedefinitionStrategy.RETRANSFORMATION)
-                    .with(AgentBuilder.Listener.StreamWriting.toSystemError().withErrorsOnly());
+            // ========================================================
+            // KafkaConsumer
+            // ========================================================
 
-            // ================= SOCKET ENFORCEMENT =================
+            agentBuilder =
+                    agentBuilder
+                            .type(
+                                    named(
+                                            "org.apache.kafka.clients.consumer.KafkaConsumer"
+                                    )
+                            )
+                            .transform((b, td, cl, m, pd) ->
+                                    b.visit(
+                                            net.bytebuddy.asm.Advice.to(
+                                                            SocketAdvice
+                                                                    .KafkaClientCtorAdvice.class
+                                                    )
+                                                    .on(isConstructor())
+                                    )
+                            );
 
-            builder = builder
-                    // java.net.Socket
-                    .type(ElementMatchers.named("java.net.Socket"))
-                    .transform((b, td, cl, module, pd) ->
-                            b.visit(Advice.to(SocketAdvice.SocketConnectAdvice.class)
-                                    .on(ElementMatchers.named("connect")))
-                    )
-                    // SocketChannel
-                    .type(ElementMatchers.named("java.nio.channels.SocketChannel"))
-                    .transform((b, td, cl, module, pd) ->
-                            b.visit(Advice.to(SocketAdvice.SocketConnectAdvice.class)
-                                            .on(ElementMatchers.named("connect")))
-                                    .visit(Advice.to(SocketAdvice.SocketNoArgAdvice.class)
-                                            .on(ElementMatchers.named("finishConnect")
-                                                    .or(ElementMatchers.named("open"))))
-                    )
-                    // SocketChannelImpl
-                    .type(ElementMatchers.named("sun.nio.ch.SocketChannelImpl"))
-                    .transform((b, td, cl, module, pd) ->
-                            b.visit(Advice.to(SocketAdvice.SocketConnectAdvice.class)
-                                            .on(ElementMatchers.named("connect")))
-                                    .visit(Advice.to(SocketAdvice.SocketNoArgAdvice.class)
-                                            .on(ElementMatchers.named("finishConnect")))
-                    );
+            // ========================================================
+            // StreamsBuilder = logical STREAMS client
+            // ========================================================
 
-            // ================= KAFKA ENTRYPOINTS =================
-            builder = builder
-                    .type(ElementMatchers.nameStartsWith("org.apache.kafka.clients.producer.KafkaProducer"))
-                    .transform((b, td, cl, module, pd) ->
-                            b.visit(Advice.to(SocketAdvice.KafkaEntrypointAdvice.class)
-                                    .on(ElementMatchers.named("send")))
-                    );
+            agentBuilder =
+                    agentBuilder
+                            .type(
+                                    named(
+                                            "org.apache.kafka.streams.StreamsBuilder"
+                                    )
+                            )
+                            .transform((b, td, cl, m, pd) ->
 
-            // ================= KAFKA NETWORK HOOK =================
-            builder = builder
-                    .type(ElementMatchers.named("org.apache.kafka.clients.NetworkClient"))
-                    .transform((b, td, cl, module, pd) ->
-                            b.visit(Advice.to(SocketAdvice.KafkaNetworkAdvice.class)
-                                    .on(ElementMatchers.named("initiateConnect")
-                                            .and(ElementMatchers.takesArguments(2))))
-                    );
+                                    b
 
-            // ================= UDP ENFORCEMENT =================
+                                            // logical client
+                                            .visit(
+                                                    net.bytebuddy.asm.Advice.to(
+                                                                    SocketAdvice
+                                                                            .StreamsLogicalClientAdvice.class
+                                                            )
+                                                            .on(isConstructor())
+                                            )
 
-            builder = builder
-                    .type(ElementMatchers.named("java.net.DatagramSocket"))
-                    .transform((b, td, cl, module, pd) ->
-                            b.visit(Advice.to(SocketAdvice.SocketConnectAdvice.class)
-                                    .on(ElementMatchers.named("send")
-                                            .or(ElementMatchers.named("connect"))))
-                    )
-                    .type(ElementMatchers.named("java.nio.channels.DatagramChannel"))
-                    .transform((b, td, cl, module, pd) ->
-                            b.visit(Advice.to(SocketAdvice.SocketConnectAdvice.class)
-                                    .on(ElementMatchers.named("send")
-                                            .or(ElementMatchers.named("connect"))))
-                    )
-                    .type(ElementMatchers.named("sun.nio.ch.DatagramChannelImpl"))
-                    .transform((b, td, cl, module, pd) ->
-                            b.visit(Advice.to(SocketAdvice.SocketConnectAdvice.class)
-                                    .on(ElementMatchers.named("send")
-                                            .or(ElementMatchers.named("connect"))))
-                    );
+                                            // topology printing
+                                            .visit(
+                                                    net.bytebuddy.asm.Advice.to(
+                                                                    SocketAdvice
+                                                                            .StreamsTopologyAdvice.class
+                                                            )
+                                                            .on(named("build"))
+                                            )
+                            );
 
-            // ================= LISTEN / BIND ENFORCEMENT =================
-            builder = builder
-                    .type(ElementMatchers.named("java.net.ServerSocket"))
-                    .transform((b, td, cl, module, pd) ->
-                            b.visit(Advice.to(SocketAdvice.SocketBindAdvice.class)
-                                    .on(ElementMatchers.named("bind")))
-                    )
-                    .type(ElementMatchers.named("java.nio.channels.ServerSocketChannel"))
-                    .transform((b, td, cl, module, pd) ->
-                            b.visit(Advice.to(SocketAdvice.SocketBindAdvice.class)
-                                    .on(ElementMatchers.named("bind")))
-                    )
-                    .type(ElementMatchers.named("sun.nio.ch.ServerSocketChannelImpl"))
-                    .transform((b, td, cl, module, pd) ->
-                            b.visit(Advice.to(SocketAdvice.SocketBindAdvice.class)
-                                    .on(ElementMatchers.named("bind")))
-                    )
-                    .type(ElementMatchers.named("java.net.DatagramSocket"))
-                    .transform((b, td, cl, module, pd) ->
-                            b.visit(Advice.to(SocketAdvice.SocketBindAdvice.class)
-                                    .on(ElementMatchers.named("bind")))
-                    )
-                    .type(ElementMatchers.named("java.nio.channels.DatagramChannel"))
-                    .transform((b, td, cl, module, pd) ->
-                            b.visit(Advice.to(SocketAdvice.SocketBindAdvice.class)
-                                    .on(ElementMatchers.named("bind")))
-                    );
+            // ========================================================
+            // Streams runtime internal regions
+            // ========================================================
 
-            builder.installOn(instrumentation);
-            System.err.println("[policy-agent] socket policy instrumentation installed");
+            agentBuilder =
+                    agentBuilder
+                            .type(
+                                    named(
+                                            "org.apache.kafka.streams.processor.internals.DefaultKafkaClientSupplier"
+                                    )
+                            )
+                            .transform((b, td, cl, m, pd) ->
 
+                                    b.visit(
+                                            net.bytebuddy.asm.Advice.to(
+                                                            SocketAdvice
+                                                                    .StreamsInternalRegionAdvice.class
+                                                    )
+                                                    .on(
+                                                            named("getProducer")
+                                                                    .or(named("getConsumer"))
+                                                                    .or(named("getRestoreConsumer"))
+                                                                    .or(named("getGlobalConsumer"))
+                                                    )
+                                    )
+                            );
+
+            // ========================================================
+            // ❌ FORBID PROCESSOR API
+            // ========================================================
+
+            agentBuilder =
+                    agentBuilder
+                            .type(
+                                    named("org.apache.kafka.streams.Topology")
+                            )
+                            .transform((b, td, cl, m, pd) ->
+
+                                    b.visit(
+                                            net.bytebuddy.asm.Advice.to(
+                                                            SocketAdvice
+                                                                    .ForbidProcessorApiAdvice.class
+                                                    )
+                                                    .on(
+                                                            named("addProcessor")
+                                                                    .or(named("addSource"))
+                                                                    .or(named("addSink"))
+                                                    )
+                                    )
+                            );
+
+            // ========================================================
+            // java.net.Socket
+            // ========================================================
+
+            agentBuilder =
+                    agentBuilder
+                            .type(named("java.net.Socket"))
+                            .transform((b, td, cl, m, pd) ->
+
+                                    b.visit(
+                                            net.bytebuddy.asm.Advice.to(
+                                                            SocketAdvice
+                                                                    .SocketConnectAdvice.class
+                                                    )
+                                                    .on(named("connect"))
+                                    )
+                            );
+
+            // ========================================================
+            // SocketChannel
+            // ========================================================
+
+            agentBuilder =
+                    agentBuilder
+                            .type(
+                                    named(
+                                            "java.nio.channels.SocketChannel"
+                                    )
+                            )
+                            .transform((b, td, cl, m, pd) ->
+
+                                    b.visit(
+                                            net.bytebuddy.asm.Advice.to(
+                                                            SocketAdvice
+                                                                    .SocketChannelConnectAdvice.class
+                                                    )
+                                                    .on(named("connect"))
+                                    )
+                            );
+
+            agentBuilder.installOn(inst);
+
+        } catch (Exception e) {
+
+            e.printStackTrace();
+
+            Runtime.getRuntime().halt(1);
         }
-        catch (Throwable t)
-        {
-            // ✅ correct for agents, avoids REC warning
-            throw new RuntimeException("[policy-agent] Failed to initialize agent", t);
+    }
+
+    private static void addClassToJar(
+            JarOutputStream jos,
+            Class<?> clazz
+    ) throws Exception {
+
+        String classFile =
+                clazz.getName().replace('.', '/') + ".class";
+
+        jos.putNextEntry(new JarEntry(classFile));
+
+        try (InputStream is =
+                     clazz.getClassLoader()
+                             .getResourceAsStream(classFile)) {
+
+            if (is == null) {
+
+                throw new RuntimeException(
+                        "Class not found: " + classFile
+                );
+            }
+
+            is.transferTo(jos);
         }
+
+        jos.closeEntry();
     }
 }

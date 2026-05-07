@@ -1,264 +1,219 @@
 package org.apache.kafka.security.agent.bootstrap.internal;
 
 import java.net.InetSocketAddress;
+import java.security.CodeSource;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Set;
 
-public final class SocketPolicyBootstrap
-{
+public final class SocketPolicyBootstrap {
+
+    public enum KafkaClientType {
+        NONE,
+        PRODUCER,
+        CONSUMER,
+        STREAMS
+    }
+
     private static final ThreadLocal<Boolean> TRUSTED =
             ThreadLocal.withInitial(() -> false);
 
+    // ============================================================
+    // 🔥 STREAMS INTERNAL PROVENANCE
+    // ============================================================
+
+    private static final ThreadLocal<Boolean> STREAMS_INTERNAL =
+            ThreadLocal.withInitial(() -> false);
+
+    private static final Object CLIENT_LOCK = new Object();
+
+    private static final Set<Object> SEEN_CLIENTS =
+            Collections.newSetFromMap(new IdentityHashMap<>());
+
+    private static volatile Object logicalClient = null;
+
+    private static volatile KafkaClientType activeClientType =
+            KafkaClientType.NONE;
+
+    private static final Set<String> ALLOWED_PREFIX =
+            Set.of(
+                    "org.apache.kafka.clients",
+                    "org.apache.kafka.streams"
+            );
+
+    private static final Set<String> ALLOWED_JARS =
+            Set.of(
+                    "kafka-clients",
+                    "kafka-streams"
+            );
+
     private SocketPolicyBootstrap() {}
 
-    private static volatile String MODE = "DEV";
+    // ============================================================
+    // 🔐 TRUST CONTROL
+    // ============================================================
 
-    private static final java.util.Set<String> TRUSTED_HASHES =
-            java.util.Set.of(
-                    // 🔥 fill later
-                    // "abc123..."
-            );
-
-    private static final java.util.Set<String> TRUSTED_CERT_FINGERPRINTS =
-            java.util.Set.of(
-                    // SHA-256 of your signing cert
-                    // "ab12cd34..."
-            );
-
-    private static String sha256(byte[] data) throws java.security.NoSuchAlgorithmException
-    {
-        java.security.MessageDigest md =
-                java.security.MessageDigest.getInstance("SHA-256");
-
-        byte[] digest = md.digest(data);
-
-        StringBuilder sb = new StringBuilder();
-        for (byte b : digest) {
-            sb.append(String.format("%02x", b));
-        }
-        return sb.toString();
-    }
-
-    private static boolean isSignatureTrusted(Class<?> cls)
-    {
-        try
-        {
-            var pd = cls.getProtectionDomain();
-            if (pd == null) return false;
-
-            var cs = pd.getCodeSource();
-            if (cs == null) return false;
-
-            java.security.cert.Certificate[] certs = cs.getCertificates();
-
-            if (certs == null || certs.length == 0)
-            {
-                return false; // not signed
-            }
-
-            for (java.security.cert.Certificate cert : certs)
-            {
-                byte[] encoded = cert.getEncoded();
-                String fingerprint = sha256(encoded);
-
-                if (TRUSTED_CERT_FINGERPRINTS.contains(fingerprint))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-
-        }
-        catch (java.security.cert.CertificateEncodingException |
-                 java.security.NoSuchAlgorithmException e)
-        {
-            return false;
-        }
-    }
-
-    private static boolean isHashTrusted(String jarPath)
-    {
-        try
-        {
-            java.nio.file.Path path = java.nio.file.Paths.get(jarPath);
-
-            byte[] bytes = java.nio.file.Files.readAllBytes(path);
-
-            java.security.MessageDigest md =
-                    java.security.MessageDigest.getInstance("SHA-256");
-
-            byte[] digest = md.digest(bytes);
-
-            StringBuilder sb = new StringBuilder();
-            for (byte b : digest) {
-                sb.append(String.format("%02x", b));
-            }
-
-            return TRUSTED_HASHES.contains(sb.toString());
-
-        }
-        catch (java.io.IOException | java.security.NoSuchAlgorithmException e)
-        {
-            return false;
-        }
-    }
-
-    public static void setMode(String mode)
-    {
-        MODE = mode;
-    }
-
-    public static boolean isDevMode()
-    {
-        return "DEV".equals(MODE);
-    }
-
-    public static boolean isProdMode()
-    {
-        return "PROD".equals(MODE);
-    }
-
-    public static void enterTrusted()
-    {
+    public static void enterTrusted() {
         TRUSTED.set(true);
     }
 
-    public static void exitTrusted()
-    {
+    public static void exitTrusted() {
         TRUSTED.set(false);
     }
 
-    public static boolean isTrusted()
-    {
-        return Boolean.TRUE.equals(TRUSTED.get());
+    // ============================================================
+    // 🔥 STREAMS INTERNAL CONTROL
+    // ============================================================
+
+    public static void enterStreamsInternal() {
+        STREAMS_INTERNAL.set(true);
     }
 
-    public static void validate(Object endpoint)
-    {
-        if (!isTrusted())
-        {
-            // optional: still enforce caller restriction HERE
-            if (!isAuthorizedCaller())
-            {
-                throw new SecurityException("[policy-agent] DENY: unauthorized Kafka caller");
-            }
+    public static void exitStreamsInternal() {
+        STREAMS_INTERNAL.set(false);
+    }
+
+    public static boolean insideStreamsInternal() {
+        return Boolean.TRUE.equals(STREAMS_INTERNAL.get());
+    }
+
+    // ============================================================
+    // 🔥 FAIL STOP
+    // ============================================================
+
+    private static void failStop(String msg) {
+
+        System.err.println(msg);
+
+        Runtime.getRuntime().halt(1);
+    }
+
+    // ============================================================
+    // 🔥 CLIENT TRACKING
+    // ============================================================
+
+    public static void registerClient(
+            Object client,
+            String typeStr) {
+
+        // Ignore Streams infrastructure clients
+        if (insideStreamsInternal()) {
+            return;
         }
 
-        if (!isTrusted())
-        {
-            // ---- SPECIAL CASE: allow DNS (UDP port 53) ----
-            if (endpoint instanceof InetSocketAddress)
-            {
-                int port = ((InetSocketAddress) endpoint).getPort();
+        KafkaClientType type = mapType(typeStr);
 
-                if (port == 53)
-                {
-                    return; // ✅ allow DNS
+        synchronized (CLIENT_LOCK) {
+
+            if (!SEEN_CLIENTS.add(client)) {
+                return;
+            }
+
+            // First logical client
+            if (logicalClient == null) {
+
+                logicalClient = client;
+                activeClientType = type;
+
+                System.out.println(
+                        "[policy-agent] Detected Kafka client: "
+                                + typeStr);
+
+                System.out.println(
+                        "[POLICY] Active Kafka Client = "
+                                + activeClientType);
+
+                return;
+            }
+
+            // Same object
+            if (logicalClient == client) {
+                return;
+            }
+
+            failStop(
+                    "[POLICY] Multiple Kafka client instances/types detected. "
+                            + "Existing=" + activeClientType
+                            + ", New=" + type
+            );
+        }
+    }
+
+    private static KafkaClientType mapType(String t) {
+
+        if (t.contains("KafkaProducer")) {
+            return KafkaClientType.PRODUCER;
+        }
+
+        if (t.contains("KafkaConsumer")) {
+            return KafkaClientType.CONSUMER;
+        }
+
+        if (t.contains("KafkaStreams")) {
+            return KafkaClientType.STREAMS;
+        }
+
+        return KafkaClientType.NONE;
+    }
+
+    // ============================================================
+    // 🌐 NETWORK ENFORCEMENT
+    // ============================================================
+
+    public static void checkSocketConnect(
+            InetSocketAddress addr) {
+
+        if (Boolean.TRUE.equals(TRUSTED.get())) {
+            return;
+        }
+
+        boolean allowedStack = false;
+        boolean allowedJar = false;
+
+        for (StackTraceElement e :
+                Thread.currentThread().getStackTrace()) {
+
+            String cls = e.getClassName();
+
+            for (String prefix : ALLOWED_PREFIX) {
+
+                if (cls.startsWith(prefix)) {
+
+                    allowedStack = true;
+
+                    try {
+
+                        Class<?> c = Class.forName(cls);
+
+                        CodeSource src =
+                                c.getProtectionDomain()
+                                        .getCodeSource();
+
+                        if (src != null) {
+
+                            String path =
+                                    src.getLocation().toString();
+
+                            for (String jar : ALLOWED_JARS) {
+
+                                if (path.contains(jar)) {
+                                    allowedJar = true;
+                                }
+                            }
+                        }
+
+                    } catch (Throwable ignored) {
+                    }
                 }
             }
-
-            throw new SecurityException("[policy-agent] DENY: socket connect outside trusted context");
         }
 
-        if (endpoint instanceof InetSocketAddress)
-        {
-            int port = ((InetSocketAddress) endpoint).getPort();
+        if (!allowedStack || !allowedJar) {
 
-            if (port < 9091 || port > 9099) {
-                throw new SecurityException("[policy-agent] DENY: port out of allowed range: " + port);
-            }
-        }
-    }
-
-    private static boolean isSystemCaller()
-    {
-        try
-        {
-            return java.lang.StackWalker.getInstance(
-                            java.lang.StackWalker.Option.RETAIN_CLASS_REFERENCE)
-                    .walk(frames ->
-                            frames
-                                    .skip(2)
-                                    .map(f -> f.getClassName())
-                                    .anyMatch(name ->
-                                            name.startsWith("java.") ||
-                                                    name.startsWith("jdk.") ||
-                                                    name.startsWith("sun.") ||
-                                                    name.startsWith("javax.management") ||
-                                                    name.startsWith("com.sun.")
-                                    )
-                    );
-        }
-        catch (Exception e)
-        {
-            return false;
-        }
-    }
-
-    public static void validateBind(Object endpoint)
-    {
-        // ✅ Allow trusted context (Kafka, agent-marked)
-        if (isTrusted())
-        {
-            return;
-        }
-
-        // ✅ Allow JVM / system classes
-        if (isSystemCaller())
-        {
-            return;
-        }
-
-        throw new SecurityException("[policy-agent] DENY: listening sockets are not allowed");
-    }
-
-    private static boolean isAuthorizedClass(Class<?> cls)
-    {
-        try
-        {
-            var cs = cls.getProtectionDomain().getCodeSource();
-            if (cs == null) return false;
-
-            String path = cs.getLocation().getPath();
-
-            // 🟡 DEV MODE
-            if (isDevMode())
-            {
-                return path.contains("/build/libs/");
-            }
-
-            // 🔴 PROD MODE
-            if (isProdMode())
-            {
-                return isSignatureTrusted(cls) || isHashTrusted(path);
-            }
-
-            return false;
-
-        }
-        catch(Exception e)
-        {
-            return false;
-        }
-    }
-
-    private static boolean isAuthorizedCaller()
-    {
-        try
-        {
-            return java.lang.StackWalker.getInstance(
-                            java.lang.StackWalker.Option.RETAIN_CLASS_REFERENCE)
-                    .walk(frames ->
-                            frames
-                                    .skip(2) // skip validate() + advice
-                                    .filter(f -> !f.getClassName().startsWith("org.apache.kafka"))
-                                    .findFirst()
-                                    .map(f -> isAuthorizedClass(f.getDeclaringClass()))
-                                    .orElse(false)
-                    );
-        }
-        catch (Exception e)
-        {
-            return false;
+            failStop(
+                    "[POLICY] Unauthorized network access to "
+                            + addr
+            );
         }
     }
 }
