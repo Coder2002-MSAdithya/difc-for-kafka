@@ -2,6 +2,7 @@ package org.apache.kafka.security.agent;
 
 import net.bytebuddy.asm.Advice;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.net.InetSocketAddress;
@@ -148,8 +149,8 @@ public class SocketAdvice {
     }
 
     // ============================================================
-    // 🔥 STREAMS LOGICAL CLIENT
-    // ============================================================
+// 🔥 STREAMS LOGICAL CLIENT
+// ============================================================
 
     public static class StreamsLogicalClientAdvice {
 
@@ -187,6 +188,55 @@ public class SocketAdvice {
                 }
 
                 throw new RuntimeException(e);
+            }
+        }
+    }
+
+    // ============================================================
+// 🔥 STREAMS TOPOLOGY EXTRACTION
+// ============================================================
+
+    public static class StreamsTopologyAdvice {
+
+        @Advice.OnMethodExit
+        public static void exit(
+                @Advice.AllArguments Object[] args) {
+
+            try {
+
+                if (args == null || args.length == 0) {
+                    return;
+                }
+
+                Object topology = args[0];
+
+                if (topology == null) {
+                    return;
+                }
+
+                try {
+
+                    Method describeMethod =
+                            topology.getClass()
+                                    .getMethod("describe");
+
+                    Object desc =
+                            describeMethod.invoke(topology);
+
+                    System.out.println(
+                            "[POLICY] Kafka Streams DSL Topology:");
+
+                    System.out.println(desc);
+
+                } catch (NoSuchMethodException ignored) {
+                }
+
+            } catch (Throwable t) {
+
+                System.err.println(
+                        "[policy-agent] Failed to print topology: "
+                                + t.getMessage()
+                );
             }
         }
     }

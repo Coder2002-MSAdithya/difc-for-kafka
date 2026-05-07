@@ -51,6 +51,11 @@ public class PolicyAgent {
 
                 addClassToJar(
                         jos,
+                        SocketAdvice.StreamsTopologyAdvice.class
+                );
+
+                addClassToJar(
+                        jos,
                         SocketAdvice.ForbidProcessorApiAdvice.class
                 );
 
@@ -156,6 +161,15 @@ public class PolicyAgent {
                                                                             .StreamsLogicalClientAdvice.class
                                                             )
                                                             .on(named("start"))
+                                            )
+
+                                            // STREAMS topology extraction
+                                            .visit(
+                                                    net.bytebuddy.asm.Advice.to(
+                                                                    SocketAdvice
+                                                                            .StreamsTopologyAdvice.class
+                                                            )
+                                                            .on(isConstructor())
                                             )
 
                                             // STREAMS internal runtime region
