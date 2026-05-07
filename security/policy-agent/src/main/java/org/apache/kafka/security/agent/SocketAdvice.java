@@ -192,41 +192,6 @@ public class SocketAdvice {
     }
 
     // ============================================================
-    // 🔥 TOPOLOGY PRINTING
-    // ============================================================
-
-    public static class StreamsTopologyAdvice {
-
-        @Advice.OnMethodExit
-        public static void exit(@Advice.Return Object topology) {
-
-            try {
-
-                if (topology == null) {
-                    return;
-                }
-
-                Method describeMethod =
-                        topology.getClass().getMethod("describe");
-
-                Object desc =
-                        describeMethod.invoke(topology);
-
-                System.out.println(
-                        "[POLICY] Kafka Streams DSL Topology:");
-
-                System.out.println(desc);
-
-            } catch (Throwable t) {
-
-                t.printStackTrace();
-
-                Runtime.getRuntime().halt(1);
-            }
-        }
-    }
-
-    // ============================================================
     // ❌ FORBID PROCESSOR API
     // ============================================================
 
@@ -259,7 +224,10 @@ public class SocketAdvice {
 
                 if (addr instanceof InetSocketAddress) {
 
-                    checkSocketMethod.invoke(null, addr);
+                    checkSocketMethod.invoke(
+                            null,
+                            addr
+                    );
                 }
 
             } catch (InvocationTargetException e) {
@@ -302,7 +270,10 @@ public class SocketAdvice {
 
                 if (addr instanceof InetSocketAddress) {
 
-                    checkSocketMethod.invoke(null, addr);
+                    checkSocketMethod.invoke(
+                            null,
+                            addr
+                    );
                 }
 
             } catch (InvocationTargetException e) {

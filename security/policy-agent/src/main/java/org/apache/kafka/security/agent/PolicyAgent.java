@@ -51,11 +51,6 @@ public class PolicyAgent {
 
                 addClassToJar(
                         jos,
-                        SocketAdvice.StreamsTopologyAdvice.class
-                );
-
-                addClassToJar(
-                        jos,
                         SocketAdvice.ForbidProcessorApiAdvice.class
                 );
 
@@ -107,6 +102,7 @@ public class PolicyAgent {
                                     )
                             )
                             .transform((b, td, cl, m, pd) ->
+
                                     b.visit(
                                             net.bytebuddy.asm.Advice.to(
                                                             SocketAdvice
@@ -128,6 +124,7 @@ public class PolicyAgent {
                                     )
                             )
                             .transform((b, td, cl, m, pd) ->
+
                                     b.visit(
                                             net.bytebuddy.asm.Advice.to(
                                                             SocketAdvice
@@ -138,41 +135,41 @@ public class PolicyAgent {
                             );
 
             // ========================================================
-            // StreamsBuilder = logical STREAMS client
+            // KafkaStreams runtime boundary
             // ========================================================
 
             agentBuilder =
                     agentBuilder
                             .type(
                                     named(
-                                            "org.apache.kafka.streams.StreamsBuilder"
+                                            "org.apache.kafka.streams.KafkaStreams"
                                     )
                             )
                             .transform((b, td, cl, m, pd) ->
 
                                     b
 
-                                            // logical client
+                                            // STREAMS logical authority
                                             .visit(
                                                     net.bytebuddy.asm.Advice.to(
                                                                     SocketAdvice
                                                                             .StreamsLogicalClientAdvice.class
                                                             )
-                                                            .on(isConstructor())
+                                                            .on(named("start"))
                                             )
 
-                                            // topology printing
+                                            // STREAMS internal runtime region
                                             .visit(
                                                     net.bytebuddy.asm.Advice.to(
                                                                     SocketAdvice
-                                                                            .StreamsTopologyAdvice.class
+                                                                            .StreamsInternalRegionAdvice.class
                                                             )
-                                                            .on(named("build"))
+                                                            .on(named("start"))
                                             )
                             );
 
             // ========================================================
-            // Streams runtime internal regions
+            // Streams internal client supplier
             // ========================================================
 
             agentBuilder =
@@ -205,7 +202,9 @@ public class PolicyAgent {
             agentBuilder =
                     agentBuilder
                             .type(
-                                    named("org.apache.kafka.streams.Topology")
+                                    named(
+                                            "org.apache.kafka.streams.Topology"
+                                    )
                             )
                             .transform((b, td, cl, m, pd) ->
 
