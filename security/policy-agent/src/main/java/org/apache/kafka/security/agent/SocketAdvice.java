@@ -17,51 +17,32 @@ public class SocketAdvice {
     public static Method enterStreamsInternalMethod;
     public static Method exitStreamsInternalMethod;
 
-    public static void init() {
-
-        if (initialized) {
+    public static void init()
+    {
+        if (initialized)
+        {
             return;
         }
 
-        synchronized (SocketAdvice.class) {
+        synchronized(SocketAdvice.class)
+        {
 
-            if (initialized) {
+            if (initialized)
+            {
                 return;
             }
 
-            try {
-
-                Class<?> bootstrapClass = Class.forName(
-                        "org.apache.kafka.security.agent.bootstrap.internal.SocketPolicyBootstrap"
-                );
-
-                registerClientMethod =
-                        bootstrapClass.getMethod(
-                                "registerClient",
-                                Object.class,
-                                String.class
-                        );
-
-                checkSocketMethod =
-                        bootstrapClass.getMethod(
-                                "checkSocketConnect",
-                                InetSocketAddress.class
-                        );
-
-                enterStreamsInternalMethod =
-                        bootstrapClass.getMethod(
-                                "enterStreamsInternal"
-                        );
-
-                exitStreamsInternalMethod =
-                        bootstrapClass.getMethod(
-                                "exitStreamsInternal"
-                        );
-
+            try
+            {
+                Class<?> bootstrapClass = Class.forName("org.apache.kafka.security.agent.bootstrap.internal.SocketPolicyBootstrap");
+                registerClientMethod = bootstrapClass.getMethod("registerClient", Object.class, String.class);
+                checkSocketMethod = bootstrapClass.getMethod("checkSocketConnect", InetSocketAddress.class);
+                enterStreamsInternalMethod = bootstrapClass.getMethod("enterStreamsInternal");
+                exitStreamsInternalMethod = bootstrapClass.getMethod("exitStreamsInternal");
                 initialized = true;
-
-            } catch (Exception e) {
-
+            }
+            catch(Exception e)
+            {
                 throw new RuntimeException(e);
             }
         }
@@ -71,38 +52,38 @@ public class SocketAdvice {
     // 🔥 GENERIC CLIENT DETECTION
     // ============================================================
 
-    public static class KafkaClientCtorAdvice {
-
+    public static class KafkaClientCtorAdvice
+    {
         @Advice.OnMethodExit
-        public static void exit(@Advice.This Object obj) {
-
-            try {
-
+        public static void exit(@Advice.This Object obj)
+        {
+            try
+            {
                 init();
-
-                registerClientMethod.invoke(
-                        null,
-                        obj,
-                        obj.getClass().getName()
-                );
-
-            } catch (InvocationTargetException e) {
-
+                registerClientMethod.invoke(null, obj, obj.getClass().getName());
+            }
+            catch(InvocationTargetException e)
+            {
                 Throwable cause = e.getCause();
 
-                if (cause instanceof RuntimeException) {
+                if (cause instanceof RuntimeException)
+                {
                     throw (RuntimeException) cause;
                 }
 
-                if (cause instanceof Error) {
+                if (cause instanceof Error)
+                {
                     throw (Error) cause;
                 }
 
                 throw new RuntimeException(cause);
 
-            } catch (Exception e) {
+            }
+            catch (Exception e)
+            {
 
-                if (e instanceof RuntimeException) {
+                if (e instanceof RuntimeException)
+                {
                     throw (RuntimeException) e;
                 }
 
@@ -152,38 +133,40 @@ public class SocketAdvice {
 // 🔥 STREAMS LOGICAL CLIENT
 // ============================================================
 
-    public static class StreamsLogicalClientAdvice {
+    public static class StreamsLogicalClientAdvice
+    {
 
         @Advice.OnMethodEnter
-        public static void enter(@Advice.This Object obj) {
+        public static void enter(@Advice.This Object obj)
+        {
 
-            try {
+            try
+            {
 
                 init();
-
-                registerClientMethod.invoke(
-                        null,
-                        obj,
-                        obj.getClass().getName()
-                );
-
-            } catch (InvocationTargetException e) {
-
+                registerClientMethod.invoke(null, obj, obj.getClass().getName());
+            }
+            catch(InvocationTargetException e)
+            {
                 Throwable cause = e.getCause();
 
-                if (cause instanceof RuntimeException) {
+                if (cause instanceof RuntimeException)
+                {
                     throw (RuntimeException) cause;
                 }
 
-                if (cause instanceof Error) {
+                if (cause instanceof Error)
+                {
                     throw (Error) cause;
                 }
 
                 throw new RuntimeException(cause);
 
-            } catch (Exception e) {
-
-                if (e instanceof RuntimeException) {
+            }
+            catch (Exception e)
+            {
+                if (e instanceof RuntimeException)
+                {
                     throw (RuntimeException) e;
                 }
 
@@ -196,47 +179,44 @@ public class SocketAdvice {
 // 🔥 STREAMS TOPOLOGY EXTRACTION
 // ============================================================
 
-    public static class StreamsTopologyAdvice {
+    public static class StreamsTopologyAdvice
+    {
 
         @Advice.OnMethodExit
-        public static void exit(
-                @Advice.AllArguments Object[] args) {
+        public static void exit(@Advice.AllArguments Object[] args)
+        {
 
-            try {
+            try
+            {
 
-                if (args == null || args.length == 0) {
+                if (args == null || args.length == 0)
+                {
                     return;
                 }
 
                 Object topology = args[0];
 
-                if (topology == null) {
+                if (topology == null)
+                {
                     return;
                 }
 
-                try {
-
-                    Method describeMethod =
-                            topology.getClass()
-                                    .getMethod("describe");
-
-                    Object desc =
-                            describeMethod.invoke(topology);
-
-                    System.out.println(
-                            "[POLICY] Kafka Streams DSL Topology:");
-
+                try
+                {
+                    Method describeMethod = topology.getClass().getMethod("describe");
+                    Object desc = describeMethod.invoke(topology);
+                    System.out.println("[POLICY] Kafka Streams DSL Topology:");
                     System.out.println(desc);
+                }
+                catch(NoSuchMethodException ignored)
+                {
 
-                } catch (NoSuchMethodException ignored) {
                 }
 
-            } catch (Throwable t) {
-
-                System.err.println(
-                        "[policy-agent] Failed to print topology: "
-                                + t.getMessage()
-                );
+            }
+            catch(Throwable t)
+            {
+                System.err.println("[policy-agent] Failed to print topology: " + t.getMessage());
             }
         }
     }
@@ -245,16 +225,12 @@ public class SocketAdvice {
     // ❌ FORBID PROCESSOR API
     // ============================================================
 
-    public static class ForbidProcessorApiAdvice {
-
+    public static class ForbidProcessorApiAdvice
+    {
         @Advice.OnMethodEnter
-        public static void enter(@Advice.Origin String method) {
-
-            System.err.println(
-                    "[POLICY] Forbidden Kafka Streams Processor API usage: "
-                            + method
-            );
-
+        public static void enter(@Advice.Origin String method)
+        {
+            System.err.println("[POLICY] Forbidden Kafka Streams Processor API usage: " + method);
             Runtime.getRuntime().halt(1);
         }
     }
@@ -263,40 +239,43 @@ public class SocketAdvice {
     // 🌐 SOCKET CONNECT
     // ============================================================
 
-    public static class SocketConnectAdvice {
-
+    public static class SocketConnectAdvice
+    {
         @Advice.OnMethodEnter
-        public static void enter(@Advice.Argument(0) Object addr) {
-
-            try {
-
+        public static void enter(@Advice.Argument(0) Object addr)
+        {
+            try
+            {
                 init();
 
-                if (addr instanceof InetSocketAddress) {
-
-                    checkSocketMethod.invoke(
-                            null,
-                            addr
-                    );
+                if (addr instanceof InetSocketAddress)
+                {
+                    checkSocketMethod.invoke(null, addr);
                 }
 
-            } catch (InvocationTargetException e) {
+            }
+            catch (InvocationTargetException e)
+            {
 
                 Throwable cause = e.getCause();
 
-                if (cause instanceof RuntimeException) {
+                if (cause instanceof RuntimeException)
+                {
                     throw (RuntimeException) cause;
                 }
 
-                if (cause instanceof Error) {
+                if (cause instanceof Error)
+                {
                     throw (Error) cause;
                 }
 
                 throw new RuntimeException(cause);
 
-            } catch (Exception e) {
-
-                if (e instanceof RuntimeException) {
+            }
+            catch (Exception e)
+            {
+                if (e instanceof RuntimeException)
+                {
                     throw (RuntimeException) e;
                 }
 
@@ -309,40 +288,41 @@ public class SocketAdvice {
     // 🌐 SOCKET CHANNEL CONNECT
     // ============================================================
 
-    public static class SocketChannelConnectAdvice {
-
+    public static class SocketChannelConnectAdvice
+    {
         @Advice.OnMethodEnter
-        public static void enter(@Advice.Argument(0) Object addr) {
-
-            try {
-
+        public static void enter(@Advice.Argument(0) Object addr)
+        {
+            try
+            {
                 init();
 
-                if (addr instanceof InetSocketAddress) {
-
-                    checkSocketMethod.invoke(
-                            null,
-                            addr
-                    );
+                if (addr instanceof InetSocketAddress)
+                {
+                    checkSocketMethod.invoke(null, addr);
                 }
 
-            } catch (InvocationTargetException e) {
-
+            }
+            catch (InvocationTargetException e)
+            {
                 Throwable cause = e.getCause();
 
-                if (cause instanceof RuntimeException) {
+                if (cause instanceof RuntimeException)
+                {
                     throw (RuntimeException) cause;
                 }
 
-                if (cause instanceof Error) {
+                if (cause instanceof Error)
+                {
                     throw (Error) cause;
                 }
 
                 throw new RuntimeException(cause);
-
-            } catch (Exception e) {
-
-                if (e instanceof RuntimeException) {
+            }
+            catch (Exception e)
+            {
+                if (e instanceof RuntimeException)
+                {
                     throw (RuntimeException) e;
                 }
 

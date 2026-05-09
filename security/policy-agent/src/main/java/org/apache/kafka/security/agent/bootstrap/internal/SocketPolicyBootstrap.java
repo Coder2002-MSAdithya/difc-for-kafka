@@ -48,7 +48,6 @@ public final class SocketPolicyBootstrap {
     // ============================================================
     // 🔐 TRUST CONTROL
     // ============================================================
-
     public static void enterTrusted()
     {
         TRUSTED.set(true);
@@ -94,7 +93,6 @@ public final class SocketPolicyBootstrap {
 
     public static void registerClient(Object client, String typeStr)
     {
-
         // Ignore Streams infrastructure clients
         if (insideStreamsInternal())
         {
@@ -133,7 +131,6 @@ public final class SocketPolicyBootstrap {
 
     private static KafkaClientType mapType(String t)
     {
-
         if(t.contains("KafkaProducer"))
         {
             return KafkaClientType.PRODUCER;
