@@ -3905,3 +3905,41 @@ tasks.named('rat') {
     enabled = false
 }
 
+ext {
+    signingKeystore = System.getenv("KAFKA_SIGN_KEYSTORE")
+    signingStorePass = System.getenv("KAFKA_SIGN_STOREPASS")
+    signingAlias = System.getenv("KAFKA_SIGN_ALIAS")
+    signingKeyPass = System.getenv("KAFKA_SIGN_KEYPASS")
+}
+
+tasks.register("signFinalJars") {
+    dependsOn("jar")
+
+    doLast {
+        def jars = fileTree("${rootDir}") {
+            include "**/build/libs/*.jar"
+        }
+
+        jars.each { jarFile ->
+            exec {
+                commandLine(
+                        "jarsigner",
+                        "-keystore", System.getenv("KAFKA_SIGN_KEYSTORE"),
+                        "-storetype", "PKCS12",
+                        "-storepass", System.getenv("KAFKA_SIGN_STOREPASS"),
+                        "-keypass", System.getenv("KAFKA_SIGN_KEYPASS"),
+                        "-sigalg", "SHA256withECDSA",
+                        "-digestalg", "SHA-256",
+                        jarFile.absolutePath,
+                        System.getenv("KAFKA_SIGN_ALIAS")
+                )
+            }
+
+            println "Signed JAR: ${jarFile}"
+        }
+    }
+}
+
+//tasks.named("releaseTarGz") {
+//    finalizedBy("signFinalJars")
+//}
