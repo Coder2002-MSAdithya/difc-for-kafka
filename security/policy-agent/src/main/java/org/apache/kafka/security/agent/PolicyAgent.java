@@ -42,10 +42,10 @@ public class PolicyAgent
             inst.appendToBootstrapClassLoaderSearch(new JarFile(tempJar));
 
             AgentBuilder agentBuilder = new AgentBuilder.Default().ignore(
-                                    nameStartsWith("net.bytebuddy.")
-                                            .or(nameStartsWith("sun.reflect"))
-                                            .or(nameStartsWith("jdk.internal.reflect"))
-                            );
+                    nameStartsWith("net.bytebuddy.")
+                            .or(nameStartsWith("sun.reflect"))
+                            .or(nameStartsWith("jdk.internal.reflect"))
+            );
 
             // ========================================================
             // KafkaProducer
@@ -61,86 +61,91 @@ public class PolicyAgent
             // KafkaConsumer
             // ========================================================
             agentBuilder = agentBuilder.type(named("org.apache.kafka.clients.consumer.KafkaConsumer"))
-                            .transform((b, td, cl, m, pd) ->
-                                    b.visit(net.bytebuddy.asm.Advice.to(SocketAdvice.KafkaClientCtorAdvice.class).on(isConstructor()))
-                            );
+                    .transform((b, td, cl, m, pd) ->
+                            b.visit(net.bytebuddy.asm.Advice.to(SocketAdvice.KafkaClientCtorAdvice.class).on(isConstructor()))
+                    );
 
             // ========================================================
             // KafkaStreams runtime boundary
             // ========================================================
             agentBuilder = agentBuilder.type(named("org.apache.kafka.streams.KafkaStreams"))
-                            .transform((b, td, cl, m, pd) ->
+                    .transform((b, td, cl, m, pd) ->
 
-                                    b
-                                            // STREAMS logical authority
-                                            .visit(
-                                                    net.bytebuddy.asm.Advice.to(
-                                                                    SocketAdvice
-                                                                            .StreamsLogicalClientAdvice.class
-                                                            )
-                                                            .on(named("start"))
-                                            )
-                                            // STREAMS topology extraction
-                                            .visit(
-                                                    net.bytebuddy.asm.Advice.to(
-                                                                    SocketAdvice
-                                                                            .StreamsTopologyAdvice.class
-                                                            )
-                                                            .on(isConstructor())
-                                            )
-                                            // STREAMS internal runtime region
-                                            .visit(
-                                                    net.bytebuddy.asm.Advice.to(
-                                                                    SocketAdvice
-                                                                            .StreamsInternalRegionAdvice.class
-                                                            )
-                                                            .on(named("start"))
-                                            )
-                            );
+                            b
+                                    // STREAMS logical authority
+                                    .visit(
+                                            net.bytebuddy.asm.Advice.to(
+                                                            SocketAdvice
+                                                                    .StreamsLogicalClientAdvice.class
+                                                    )
+                                                    .on(named("start"))
+                                    )
+                                    // STREAMS topology extraction
+                                    .visit(
+                                            net.bytebuddy.asm.Advice.to(
+                                                            SocketAdvice
+                                                                    .StreamsTopologyAdvice.class
+                                                    )
+                                                    .on(isConstructor())
+                                    )
+                                    // STREAMS internal runtime region
+                                    .visit(
+                                            net.bytebuddy.asm.Advice.to(
+                                                            SocketAdvice
+                                                                    .StreamsInternalRegionAdvice.class
+                                                    )
+                                                    .on(named("start"))
+                                    )
+                    );
 
             // ========================================================
             // Streams internal client supplier
             // ========================================================
 
             agentBuilder = agentBuilder.type(named("org.apache.kafka.streams.processor.internals.DefaultKafkaClientSupplier"))
-                            .transform((b, td, cl, m, pd) ->
-                                    b.visit(
-                                            net.bytebuddy.asm.Advice.to(
-                                                            SocketAdvice.StreamsInternalRegionAdvice.class
-                                                    )
-                                                    .on(named("getProducer")
-                                                            .or(named("getConsumer"))
-                                                            .or(named("getRestoreConsumer"))
-                                                            .or(named("getGlobalConsumer"))
-                                                    )
-                                    )
-                            );
+                    .transform((b, td, cl, m, pd) ->
+                            b.visit(
+                                    net.bytebuddy.asm.Advice.to(
+                                                    SocketAdvice.StreamsInternalRegionAdvice.class
+                                            )
+                                            .on(named("getProducer")
+                                                    .or(named("getConsumer"))
+                                                    .or(named("getRestoreConsumer"))
+                                                    .or(named("getGlobalConsumer"))
+                                            )
+                            )
+                    );
 
             // ========================================================
             // ❌ FORBID PROCESSOR API
             // ========================================================
             agentBuilder = agentBuilder.type(named("org.apache.kafka.streams.Topology"))
-                            .transform((b, td, cl, m, pd) ->
-                                    b.visit(net.bytebuddy.asm.Advice.to(SocketAdvice.ForbidProcessorApiAdvice.class)
-                                                    .on(named("addProcessor").or(named("addSource")).or(named("addSink")))
-                                    )
-                            );
+                    .transform((b, td, cl, m, pd) ->
+                            b.visit(net.bytebuddy.asm.Advice.to(SocketAdvice.ForbidProcessorApiAdvice.class)
+                                    .on(named("addProcessor").or(named("addSource")).or(named("addSink")))
+                            )
+                    );
 
             // ========================================================
             // java.net.Socket
             // ========================================================
             agentBuilder = agentBuilder.type(named("java.net.Socket"))
                     .transform((b, td, cl, m, pd) ->
-                                    b.visit(net.bytebuddy.asm.Advice.to(SocketAdvice.SocketConnectAdvice.class).on(named("connect")))
-                            );
+                            b.visit(net.bytebuddy.asm.Advice.to(SocketAdvice.SocketConnectAdvice.class).on(named("connect")))
+                    );
 
             // ========================================================
-            // SocketChannel
+            // SocketChannel (concrete JDK implementations)
             // ========================================================
             agentBuilder = agentBuilder.type(named("java.nio.channels.SocketChannel"))
-                            .transform((b, td, cl, m, pd) ->
-                                    b.visit(net.bytebuddy.asm.Advice.to(SocketAdvice.SocketChannelConnectAdvice.class).on(named("connect")))
-                            );
+                    .transform((b, td, cl, m, pd) ->
+                            b.visit(net.bytebuddy.asm.Advice.to(SocketAdvice.SocketChannelConnectAdvice.class).on(named("connect")))
+                    );
+
+            agentBuilder = agentBuilder.type(named("sun.nio.ch.SocketChannelImpl"))
+                    .transform((b, td, cl, m, pd) ->
+                            b.visit(net.bytebuddy.asm.Advice.to(SocketAdvice.SocketChannelConnectAdvice.class).on(named("connect")))
+                    );
 
             agentBuilder.installOn(inst);
 
