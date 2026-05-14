@@ -248,6 +248,13 @@ public class PolicyAgent
                                     b.visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.WindowedByAdvice.class).on(named("windowedBy")))
                             );
 
+            agentBuilder = agentBuilder.type(named("org.apache.kafka.streams.StreamsBuilder"))
+                    .transform((b, td, cl, m, pd) ->
+                            b.visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.StreamSourceAdvice.class).on(named("stream")))
+                                    .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.StreamSourceAdvice.class).on(named("table")))
+                                    .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.StreamSourceAdvice.class).on(named("globalTable")))
+                    );
+
             agentBuilder.installOn(inst);
 
         }

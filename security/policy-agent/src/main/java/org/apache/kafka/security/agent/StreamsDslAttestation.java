@@ -58,6 +58,11 @@ public final class StreamsDslAttestation
                                 return false;
                             }
 
+//                            if (cn.startsWith("org.apache.kafka.streams."))
+//                            {
+//                                return false;
+//                            }
+
                             if (cn.startsWith(
                                     "java."))
                             {

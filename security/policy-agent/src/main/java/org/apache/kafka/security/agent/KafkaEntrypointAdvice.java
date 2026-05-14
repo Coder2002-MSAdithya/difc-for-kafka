@@ -19,6 +19,20 @@ public class KafkaEntrypointAdvice
         SocketPolicyBootstrap.exitTrusted();
     }
 
+    public static class StreamSourceAdvice
+    {
+        @Advice.OnMethodEnter
+        public static void enter(@Advice.Argument(0) Object source)
+        {
+            if (!StreamsDslAttestation.shouldEmitUserDsl("stream"))
+            {
+                return;
+            }
+
+            System.out.println("[POLICY][ATTEST] topology.statement=from(" + source + ")");
+        }
+    }
+
     public static class FilterAdvice
     {
         @Advice.OnMethodEnter
