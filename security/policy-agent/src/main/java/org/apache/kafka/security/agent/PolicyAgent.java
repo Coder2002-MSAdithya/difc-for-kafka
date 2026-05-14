@@ -11,6 +11,8 @@ import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
 
+import java.lang.invoke.LambdaMetafactory;
+
 import static net.bytebuddy.matcher.ElementMatchers.*;
 
 public class PolicyAgent
@@ -32,6 +34,7 @@ public class PolicyAgent
                 addClassToJar(jos, SocketAdvice.StreamsInternalRegionAdvice.class);
                 addClassToJar(jos, SocketAdvice.StreamsLogicalClientAdvice.class);
                 addClassToJar(jos, SocketAdvice.StreamsTopologyAdvice.class);
+//                addClassToJar(jos, SocketAdvice.DslFunctionCaptureAdvice.class);
                 addClassToJar(jos, SocketAdvice.ForbidProcessorApiAdvice.class);
                 addClassToJar(jos, SocketAdvice.SocketConnectAdvice.class);
                 addClassToJar(jos, SocketAdvice.SocketChannelConnectAdvice.class);
@@ -127,6 +130,23 @@ public class PolicyAgent
                     );
 
             // ========================================================
+            // Streams DSL transformation capture (KStream)
+            // ========================================================
+//            agentBuilder = agentBuilder.type(named("org.apache.kafka.streams.kstream.internals.KStreamImpl"))
+//                    .transform((b, td, cl, m, pd) ->
+//                            b.visit(net.bytebuddy.asm.Advice.to(SocketAdvice.DslFunctionCaptureAdvice.class)
+//                                    .on(named("map")
+//                                            .or(named("mapValues"))
+//                                            .or(named("flatMap"))
+//                                            .or(named("flatMapValues"))
+//                                            .or(named("filter"))
+//                                            .or(named("filterNot"))
+//                                            .or(named("transform"))
+//                                            .or(named("transformValues"))
+//                                    ))
+//                    );
+
+            // ========================================================
             // java.net.Socket
             // ========================================================
             agentBuilder = agentBuilder.type(named("java.net.Socket"))
@@ -146,6 +166,87 @@ public class PolicyAgent
                     .transform((b, td, cl, m, pd) ->
                             b.visit(net.bytebuddy.asm.Advice.to(SocketAdvice.SocketChannelConnectAdvice.class).on(named("connect")))
                     );
+
+            agentBuilder = agentBuilder.type(named("org.apache.kafka.streams.kstream.internals.KStreamImpl"))
+                             .transform((b, td, cl, m, pd) ->
+                                    b.visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.FilterAdvice.class).on(named("filter")))
+                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.SelectKeyAdvice.class).on(named("selectKey")))
+                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.GroupByAdvice.class).on(named("groupBy")))
+                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.GroupByKeyAdvice.class).on(named("groupByKey")))
+                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.FlatMapValuesAdvice.class).on(named("flatMapValues")))
+                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.ToAdvice.class).on(named("to")))
+                            );
+
+            agentBuilder = agentBuilder.type(named("org.apache.kafka.streams.kstream.internals.TimeWindowedKStreamImpl"))
+                            .transform((b, td, cl, m, pd) ->
+                                    b.visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.ReduceAdvice.class).on(named("reduce")))
+                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.AggregateAdvice.class).on(named("aggregate")))
+                            );
+
+            agentBuilder = agentBuilder.type(named("org.apache.kafka.streams.kstream.internals.TimeGroupedKStreamImpl"))
+                            .transform((b, td, cl, m, pd) ->
+                                    b.visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.WindowedByAdvice.class).on(named("windowedBy")))
+                            );
+
+            agentBuilder = agentBuilder.type(named("org.apache.kafka.streams.kstream.internals.KTableImpl"))
+                            .transform((b, td, cl, m, pd) ->
+                                    b.visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.ToStreamAdvice.class).on(named("toStream")))
+                            );
+
+            // ========================================================
+            // USER-LEVEL STREAMS DSL INSTRUMENTATION
+            // ========================================================
+            agentBuilder = agentBuilder
+                            // ====================================================
+                            // KStream operators
+                            // ====================================================
+                            .type(named("org.apache.kafka.streams.kstream.internals.KStreamImpl"))
+                            .transform((b, td, cl, m, pd) ->
+                                    b.visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.FilterAdvice.class).on(named("filter")))
+                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.MapAdvice.class).on(named("map")))
+                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.MapValuesAdvice.class).on(named("mapValues")))
+                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.FlatMapAdvice.class).on(named("flatMap")))
+                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.FlatMapValuesAdvice.class).on(named("flatMapValues")))
+                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.SelectKeyAdvice.class).on(named("selectKey")))
+                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.GroupByAdvice.class).on(named("groupBy")))
+                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.GroupByKeyAdvice.class).on(named("groupByKey")))
+                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.ToAdvice.class).on(named("to")))
+                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.ToStreamAdvice.class).on(named("toStream")))
+                            );
+
+
+            // ========================================================
+            // TimeGroupedKStream operators
+            // ========================================================
+            agentBuilder = agentBuilder.type(named("org.apache.kafka.streams.kstream.internals.TimeGroupedKStreamImpl"))
+                            .transform((b, td, cl, m, pd) ->
+                                    b.visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.WindowedByAdvice.class).on(named("windowedBy")))
+                            );
+
+
+            // ========================================================
+            // KGroupedStream windowing
+            // ========================================================
+
+            agentBuilder = agentBuilder.type(named("org.apache.kafka.streams.kstream.internals.KGroupedStreamImpl"))
+                            .transform((b, td, cl, m, pd) ->
+                                    b.visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.WindowedByAdvice.class).on(named("windowedBy"))));
+
+            // ========================================================
+            // Hidden lambda generation instrumentation
+            // ========================================================
+            agentBuilder = agentBuilder.type(named("java.lang.invoke.InnerClassLambdaMetafactory"))
+                            .transform((b, td, cl, m, pd) ->
+                                    b.visit(net.bytebuddy.asm.Advice.to(LambdaMetafactoryAdvice.class).on(named("spinInnerClass")))
+                            );
+
+            // ========================================================
+            // TimeWindowedCogroupedKStreamImpl
+            // ========================================================
+            agentBuilder = agentBuilder.type(named("org.apache.kafka.streams.kstream.internals.TimeWindowedCogroupedKStreamImpl"))
+                            .transform((b, td, cl, m, pd) ->
+                                    b.visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.WindowedByAdvice.class).on(named("windowedBy")))
+                            );
 
             agentBuilder.installOn(inst);
 

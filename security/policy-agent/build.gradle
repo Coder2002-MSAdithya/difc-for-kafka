@@ -12,6 +12,8 @@ repositories {
 dependencies {
     implementation('net.bytebuddy:byte-buddy:1.14.12')
     implementation('net.bytebuddy:byte-buddy-agent:1.14.12')
+    implementation('org.ow2.asm:asm:9.7')
+    implementation('org.ow2.asm:asm-tree:9.7')
     compileOnly 'com.github.spotbugs:spotbugs-annotations:4.8.6'
 }
 
