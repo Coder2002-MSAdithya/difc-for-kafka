@@ -177,21 +177,42 @@ public class PolicyAgent
                                             .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.ToAdvice.class).on(named("to")))
                             );
 
+            // ========================================================
+            // TimeWindowedKStreamImpl
+            // ========================================================
             agentBuilder = agentBuilder.type(named("org.apache.kafka.streams.kstream.internals.TimeWindowedKStreamImpl"))
                             .transform((b, td, cl, m, pd) ->
-                                    b.visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.ReduceAdvice.class).on(named("reduce")))
+                                    b.visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.CountAdvice.class).on(named("count")))
+                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.ReduceAdvice.class).on(named("reduce")))
                                             .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.AggregateAdvice.class).on(named("aggregate")))
-                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.CountAdvice.class).on(named("count")))
                             );
+
+            // ========================================================
+            // SessionWindowedKStreamImpl
+            // ========================================================
+            agentBuilder = agentBuilder.type(named("org.apache.kafka.streams.kstream.internals.SessionWindowedKStreamImpl"))
+                            .transform((b, td, cl, m, pd) ->
+                                    b.visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.AggregateAdvice.class).on(named("aggregate")))
+                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.CountAdvice.class).on(named("count")))
+                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.ReduceAdvice.class).on(named("reduce")))
+                            );
+
 
             agentBuilder = agentBuilder.type(named("org.apache.kafka.streams.kstream.internals.TimeGroupedKStreamImpl"))
                             .transform((b, td, cl, m, pd) ->
                                     b.visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.WindowedByAdvice.class).on(named("windowedBy")))
                             );
 
+            // ========================================================
+            // KTableImpl
+            // ========================================================
             agentBuilder = agentBuilder.type(named("org.apache.kafka.streams.kstream.internals.KTableImpl"))
                             .transform((b, td, cl, m, pd) ->
                                     b.visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.ToStreamAdvice.class).on(named("toStream")))
+                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.JoinAdvice.class)
+                                                    .on(named("join").or(named("leftJoin")).or(named("outerJoin"))))
+                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.FilterAdvice.class).on(named("filter")))
+                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.MapValuesAdvice.class).on(named("mapValues")))
                             );
 
             // ========================================================
@@ -261,6 +282,16 @@ public class PolicyAgent
             agentBuilder = agentBuilder.type(named("org.apache.kafka.streams.kstream.internals.KGroupedStreamImpl"))
                             .transform((b, td, cl, m, pd) ->
                                     b.visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.CountAdvice.class).on(named("count")))
+                            );
+
+            // ========================================================
+            // InternalTopologyBuilder
+            // ========================================================
+            agentBuilder = agentBuilder.type(named("org.apache.kafka.streams.processor.internals.InternalTopologyBuilder"))
+                            .transform((b, td, cl, m, pd) ->
+                                    b.visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.InternalTopicAdvice.class).on(named("addInternalTopic")))
+                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.StateStoreAdvice.class).on(named("addStateStore")))
+                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.ProcessorAdvice.class).on(named("addProcessor")))
                             );
 
             agentBuilder.installOn(inst);

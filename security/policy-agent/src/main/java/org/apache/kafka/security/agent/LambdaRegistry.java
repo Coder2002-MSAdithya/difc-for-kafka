@@ -8,12 +8,13 @@ public final class LambdaRegistry
     public static final class LambdaInfo
     {
         public final String implClass;
-
         public final String implMethod;
-
         public final String implDesc;
 
-        public LambdaInfo(String implClass, String implMethod, String implDesc)
+        public LambdaInfo(
+                String implClass,
+                String implMethod,
+                String implDesc)
         {
             this.implClass = implClass;
             this.implMethod = implMethod;

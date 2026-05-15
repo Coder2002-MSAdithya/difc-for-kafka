@@ -18,10 +18,6 @@ public class LambdaMetafactoryAdvice
     {
         try
         {
-            // ====================================================
-            // Get generated lambda class name
-            // ====================================================
-
             Field lambdaClassNameField =
                     self.getClass()
                             .getDeclaredField(
@@ -35,10 +31,6 @@ public class LambdaMetafactoryAdvice
 
             generatedClass =
                     generatedClass.replace('/', '.');
-
-            // ====================================================
-            // Recover implementation method
-            // ====================================================
 
             MethodHandleInfo info =
                     MethodHandles.lookup()
@@ -55,10 +47,6 @@ public class LambdaMetafactoryAdvice
             String implDesc =
                     implMethod.type()
                             .toMethodDescriptorString();
-
-            // ====================================================
-            // Register exact mapping
-            // ====================================================
 
             LambdaRegistry.register(
                     generatedClass,

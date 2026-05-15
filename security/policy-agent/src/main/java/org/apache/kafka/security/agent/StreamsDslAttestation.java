@@ -276,6 +276,33 @@ public final class StreamsDslAttestation
                 "[POLICY][ATTEST] impl.signature="
                         + sl.getImplMethodSignature());
 
+        // =====================================================
+        // Captured closure arguments
+        // =====================================================
+        for (int i = 0;
+             i < sl.getCapturedArgCount();
+             i++)
+        {
+            Object captured =
+                    sl.getCapturedArg(i);
+
+            System.out.println(
+                    "[POLICY][ATTEST] captured.arg."
+                            + i
+                            + "="
+                            + captured);
+
+            if (captured != null)
+            {
+                System.out.println(
+                        "[POLICY][ATTEST] captured.arg."
+                                + i
+                                + ".class="
+                                + captured.getClass()
+                                .getName());
+            }
+        }
+
         byte[] bytecode =
                 extractMethodBytecode(
                         sl.getImplClass(),

@@ -349,6 +349,84 @@ public class KafkaEntrypointAdvice
         }
     }
 
+    public static class JoinAdvice
+    {
+        @Advice.OnMethodEnter
+        public static void enter(
+                @Advice.Origin("#m")
+                String method)
+        {
+            if (!StreamsDslAttestation
+                    .shouldEmitUserDsl(method))
+            {
+                return;
+            }
+
+            System.out.println(
+                    "[POLICY][ATTEST] topology.statement="
+                            + method
+                            + "(...)");
+        }
+    }
+
+    public static class BranchAdvice
+    {
+        @Advice.OnMethodEnter
+        public static void enter(
+                @Advice.Argument(0)
+                Object predicates)
+        {
+            if (!StreamsDslAttestation
+                    .shouldEmitUserDsl(
+                            "branch"))
+            {
+                return;
+            }
+
+            System.out.println(
+                    "[POLICY][ATTEST] topology.statement=branch(...)");
+        }
+    }
+
+    public static class InternalTopicAdvice
+    {
+        @Advice.OnMethodEnter
+        public static void enter(
+                @Advice.Argument(0)
+                String topic)
+        {
+            System.out.println(
+                    "[POLICY][ATTEST] internal.topic="
+                            + topic);
+        }
+    }
+
+    public static class StateStoreAdvice
+    {
+        @Advice.OnMethodEnter
+        public static void enter(
+                @Advice.Argument(0)
+                Object store)
+        {
+            System.out.println(
+                    "[POLICY][ATTEST] state.store="
+                            + store);
+        }
+    }
+
+    public static class ProcessorAdvice
+    {
+        @Advice.OnMethodEnter
+        public static void enter(
+                @Advice.Argument(0)
+                String name)
+        {
+            System.out.println(
+                    "[POLICY][ATTEST] processor="
+                            + name);
+        }
+    }
+
     public static class ToStreamAdvice
     {
         @Advice.OnMethodEnter
