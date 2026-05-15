@@ -181,6 +181,7 @@ public class PolicyAgent
                             .transform((b, td, cl, m, pd) ->
                                     b.visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.ReduceAdvice.class).on(named("reduce")))
                                             .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.AggregateAdvice.class).on(named("aggregate")))
+                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.CountAdvice.class).on(named("count")))
                             );
 
             agentBuilder = agentBuilder.type(named("org.apache.kafka.streams.kstream.internals.TimeGroupedKStreamImpl"))
@@ -248,15 +249,21 @@ public class PolicyAgent
                                     b.visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.WindowedByAdvice.class).on(named("windowedBy")))
                             );
 
+            // ========================================================
+            // StreamsBuilder source operators
+            // ========================================================
             agentBuilder = agentBuilder.type(named("org.apache.kafka.streams.StreamsBuilder"))
-                    .transform((b, td, cl, m, pd) ->
-                            b.visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.StreamSourceAdvice.class).on(named("stream")))
-                                    .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.StreamSourceAdvice.class).on(named("table")))
-                                    .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.StreamSourceAdvice.class).on(named("globalTable")))
-                    );
+                           .transform((b, td, cl, m, pd) ->
+                                   b.visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.FromAdvice.class).on(named("stream")))
+                            );
+
+
+            agentBuilder = agentBuilder.type(named("org.apache.kafka.streams.kstream.internals.KGroupedStreamImpl"))
+                            .transform((b, td, cl, m, pd) ->
+                                    b.visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.CountAdvice.class).on(named("count")))
+                            );
 
             agentBuilder.installOn(inst);
-
         }
         catch(Exception e)
         {

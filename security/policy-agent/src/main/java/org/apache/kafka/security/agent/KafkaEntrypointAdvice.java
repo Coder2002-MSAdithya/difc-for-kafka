@@ -33,6 +33,47 @@ public class KafkaEntrypointAdvice
         }
     }
 
+    public static class FromAdvice
+    {
+        @Advice.OnMethodEnter
+        public static boolean enter(@Advice.Argument(0) Object topics)
+        {
+            if (!StreamsDslAttestation.enterOperator("from"))
+            {
+                return false;
+            }
+
+            System.out.println("[POLICY][ATTEST] topology.statement=from(" + normalizeTopics(topics) + ")");
+            return true;
+        }
+
+        @Advice.OnMethodExit(onThrowable = Throwable.class)
+        public static void exit(@Advice.Enter boolean emitted)
+        {
+            if (emitted)
+            {
+                StreamsDslAttestation.exitOperator("from");
+            }
+        }
+    }
+
+    public static String normalizeTopics(Object topics)
+    {
+        if (topics == null)
+        {
+            return "null";
+        }
+
+        String s = String.valueOf(topics);
+
+        if (s.startsWith("[") && s.endsWith("]"))
+        {
+            s = s.substring(1, s.length() - 1);
+        }
+
+        return s;
+    }
+
     public static class FilterAdvice
     {
         @Advice.OnMethodEnter
@@ -227,6 +268,34 @@ public class KafkaEntrypointAdvice
             StreamsDslAttestation.attest(
                     "aggregate",
                     aggregator);
+        }
+    }
+
+    public static class CountAdvice
+    {
+        @Advice.OnMethodEnter
+        public static boolean enter()
+        {
+            if (!StreamsDslAttestation
+                    .enterOperator("count"))
+            {
+                return false;
+            }
+
+            System.out.println("[POLICY][ATTEST] topology.statement=count()");
+
+            return true;
+        }
+
+        @Advice.OnMethodExit(onThrowable = Throwable.class)
+        public static void exit(
+                @Advice.Enter boolean emitted)
+        {
+            if (emitted)
+            {
+                StreamsDslAttestation
+                        .exitOperator("count");
+            }
         }
     }
 

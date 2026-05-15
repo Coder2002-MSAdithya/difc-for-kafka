@@ -22,10 +22,29 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class StreamsDslAttestation
 {
     private static final Set<String> USER_DSL_CALLSITES = ConcurrentHashMap.newKeySet();
+    private static final ThreadLocal<java.util.Set<String>> ACTIVE_OPERATORS = ThreadLocal.withInitial(java.util.HashSet::new);
 
     private StreamsDslAttestation()
     {
 
+    }
+
+    public static boolean enterOperator(String operator)
+    {
+        java.util.Set<String> active = ACTIVE_OPERATORS.get();
+
+        if (active.contains(operator))
+        {
+            return false;
+        }
+
+        active.add(operator);
+        return true;
+    }
+
+    public static void exitOperator(String operator)
+    {
+        ACTIVE_OPERATORS.get().remove(operator);
     }
 
     private static StackWalker.StackFrame findUserFrame()
