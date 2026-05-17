@@ -36,23 +36,24 @@ public class KafkaEntrypointAdvice
     public static class FromAdvice
     {
         @Advice.OnMethodEnter
-        public static boolean enter(@Advice.Argument(0) Object topics)
+        public static Object[] enter(@Advice.Argument(0) Object topics)
         {
             if (!StreamsDslAttestation.enterOperator("from"))
             {
-                return false;
+                return new Object[]{false, topics};
             }
 
             System.out.println("[POLICY][ATTEST] topology.statement=from(" + normalizeTopics(topics) + ")");
-            return true;
+            return new Object[]{true, topics};
         }
 
         @Advice.OnMethodExit(onThrowable = Throwable.class)
-        public static void exit(@Advice.Enter boolean emitted)
+        public static void exit(@Advice.Enter Object[] state, @Advice.Return Object returned)
         {
-            if (emitted)
+            if ((boolean) state[0])
             {
                 StreamsDslAttestation.exitOperator("from");
+                DslGraphTracker.recordSource(returned, state[1]);
             }
         }
     }
@@ -77,197 +78,182 @@ public class KafkaEntrypointAdvice
     public static class FilterAdvice
     {
         @Advice.OnMethodEnter
-        public static void enter(
-                @Advice.Argument(0)
-                Object predicate)
+        public static boolean enter()
         {
-            if (!StreamsDslAttestation
-                    .shouldEmitUserDsl(
-                            "filter"))
-            {
-                return;
-            }
+            return StreamsDslAttestation.shouldEmitUserDsl("filter");
+        }
 
-            StreamsDslAttestation.attest(
-                    "filter",
-                    predicate);
+        @Advice.OnMethodExit
+        public static void exit(@Advice.Enter boolean emit, @Advice.This Object stream, @Advice.Argument(0) Object predicate, @Advice.Return Object returned)
+        {
+            if (!emit) return;
+            StreamsDslAttestation.attest("filter", predicate);
+            DslGraphTracker.recordUnary("filter", stream, returned, null, predicate, false, false);
         }
     }
 
     public static class MapValuesAdvice
     {
         @Advice.OnMethodEnter
-        public static void enter(
-                @Advice.Argument(0)
-                Object mapper)
+        public static boolean enter()
         {
-            if (!StreamsDslAttestation
-                    .shouldEmitUserDsl(
-                            "mapValues"))
-            {
-                return;
-            }
+            return StreamsDslAttestation.shouldEmitUserDsl("mapValues");
+        }
 
-            StreamsDslAttestation.attest(
-                    "mapValues",
-                    mapper);
+        @Advice.OnMethodExit
+        public static void exit(@Advice.Enter boolean emit, @Advice.This Object stream, @Advice.Argument(0) Object mapper, @Advice.Return Object returned)
+        {
+            if (!emit) return;
+            StreamsDslAttestation.attest("mapValues", mapper);
+            DslGraphTracker.recordUnary("mapValues", stream, returned, null, mapper, false, false);
         }
     }
 
     public static class MapAdvice
     {
         @Advice.OnMethodEnter
-        public static void enter(
-                @Advice.Argument(0)
-                Object mapper)
+        public static boolean enter()
         {
-            if (!StreamsDslAttestation
-                    .shouldEmitUserDsl(
-                            "map"))
-            {
-                return;
-            }
+            return StreamsDslAttestation.shouldEmitUserDsl("map");
+        }
 
-            StreamsDslAttestation.attest(
-                    "map",
-                    mapper);
+        @Advice.OnMethodExit
+        public static void exit(@Advice.Enter boolean emit, @Advice.This Object stream, @Advice.Argument(0) Object mapper, @Advice.Return Object returned)
+        {
+            if (!emit) return;
+            StreamsDslAttestation.attest("map", mapper);
+            DslGraphTracker.recordUnary("map", stream, returned, null, mapper, false, false);
         }
     }
 
     public static class FlatMapAdvice
     {
         @Advice.OnMethodEnter
-        public static void enter(
-                @Advice.Argument(0)
-                Object mapper)
+        public static boolean enter()
         {
-            if (!StreamsDslAttestation
-                    .shouldEmitUserDsl(
-                            "flatMap"))
-            {
-                return;
-            }
+            return StreamsDslAttestation.shouldEmitUserDsl("flatMap");
+        }
 
-            StreamsDslAttestation.attest(
-                    "flatMap",
-                    mapper);
+        @Advice.OnMethodExit
+        public static void exit(@Advice.Enter boolean emit, @Advice.This Object stream, @Advice.Argument(0) Object mapper, @Advice.Return Object returned)
+        {
+            if (!emit) return;
+            StreamsDslAttestation.attest("flatMap", mapper);
+            DslGraphTracker.recordUnary("flatMap", stream, returned, null, mapper, false, false);
         }
     }
 
     public static class FlatMapValuesAdvice
     {
         @Advice.OnMethodEnter
-        public static void enter(
-                @Advice.Argument(0)
-                Object mapper)
+        public static boolean enter()
         {
-            if (!StreamsDslAttestation
-                    .shouldEmitUserDsl(
-                            "flatMapValues"))
-            {
-                return;
-            }
+            return StreamsDslAttestation.shouldEmitUserDsl("flatMapValues");
+        }
 
-            StreamsDslAttestation.attest(
-                    "flatMapValues",
-                    mapper);
+        @Advice.OnMethodExit
+        public static void exit(@Advice.Enter boolean emit, @Advice.This Object stream, @Advice.Argument(0) Object mapper, @Advice.Return Object returned)
+        {
+            if (!emit) return;
+            StreamsDslAttestation.attest("flatMapValues", mapper);
+            DslGraphTracker.recordUnary("flatMapValues", stream, returned, null, mapper, false, false);
         }
     }
 
     public static class SelectKeyAdvice
     {
         @Advice.OnMethodEnter
-        public static void enter(
-                @Advice.Argument(0)
-                Object mapper)
+        public static boolean enter()
         {
-            if (!StreamsDslAttestation
-                    .shouldEmitUserDsl(
-                            "selectKey"))
-            {
-                return;
-            }
+            return StreamsDslAttestation.shouldEmitUserDsl("selectKey");
+        }
 
-            StreamsDslAttestation.attest(
-                    "selectKey",
-                    mapper);
+        @Advice.OnMethodExit
+        public static void exit(@Advice.Enter boolean emit, @Advice.This Object stream, @Advice.Argument(0) Object mapper, @Advice.Return Object returned)
+        {
+            if (!emit) return;
+            StreamsDslAttestation.attest("selectKey", mapper);
+            DslGraphTracker.recordUnary("selectKey", stream, returned, null, mapper, false, false);
         }
     }
 
     public static class GroupByAdvice
     {
         @Advice.OnMethodEnter
-        public static void enter(
-                @Advice.Argument(0)
-                Object mapper)
+        public static boolean enter()
         {
-            if (!StreamsDslAttestation
-                    .shouldEmitUserDsl(
-                            "groupBy"))
-            {
-                return;
-            }
+            return StreamsDslAttestation.shouldEmitUserDsl("groupBy");
+        }
 
-            StreamsDslAttestation.attest(
-                    "groupBy",
-                    mapper);
+        @Advice.OnMethodExit
+        public static void exit(@Advice.Enter boolean emit, @Advice.This Object stream, @Advice.Argument(0) Object mapper, @Advice.Return Object returned)
+        {
+            if (!emit) return;
+            StreamsDslAttestation.attest("groupBy", mapper);
+            DslGraphTracker.recordUnary("groupBy", stream, returned, null, mapper, false, false);
         }
     }
 
     public static class GroupByKeyAdvice
     {
         @Advice.OnMethodEnter
-        public static void enter()
+        public static boolean enter()
         {
-            if (!StreamsDslAttestation
-                    .shouldEmitUserDsl(
-                            "groupByKey"))
+            return StreamsDslAttestation.shouldEmitUserDsl("groupByKey");
+        }
+
+        @Advice.OnMethodExit
+        public static void exit(@Advice.Enter boolean emit, @Advice.This Object stream, @Advice.Return Object returned)
+        {
+            if (!emit)
             {
                 return;
             }
 
-            System.out.println(
-                    "[POLICY][ATTEST] topology.statement=groupByKey()");
+            System.out.println("[POLICY][ATTEST] topology.statement=groupByKey()");
+            DslGraphTracker.recordUnary("groupByKey", stream, returned, null, null, false, false);
         }
     }
 
     public static class ReduceAdvice
     {
         @Advice.OnMethodEnter
-        public static void enter(
-                @Advice.Argument(0)
-                Object reducer)
+        public static boolean enter()
         {
-            if (!StreamsDslAttestation
-                    .shouldEmitUserDsl(
-                            "reduce"))
+            return StreamsDslAttestation.shouldEmitUserDsl("reduce");
+        }
+
+        @Advice.OnMethodExit
+        public static void exit(@Advice.Enter boolean emit, @Advice.This Object stream, @Advice.Argument(0) Object reducer, @Advice.Return Object returned)
+        {
+            if (!emit)
             {
                 return;
             }
 
-            StreamsDslAttestation.attest(
-                    "reduce",
-                    reducer);
+            StreamsDslAttestation.attest("reduce", reducer);
+            DslGraphTracker.recordUnary("reduce", stream, returned, null, reducer, false, false);
         }
     }
 
     public static class AggregateAdvice
     {
         @Advice.OnMethodEnter
-        public static void enter(
-                @Advice.Argument(1)
-                Object aggregator)
+        public static boolean enter()
         {
-            if (!StreamsDslAttestation
-                    .shouldEmitUserDsl(
-                            "aggregate"))
+            return StreamsDslAttestation.shouldEmitUserDsl("aggregate");
+        }
+
+        @Advice.OnMethodExit
+        public static void exit(@Advice.Enter boolean emit, @Advice.This Object stream, @Advice.Argument(1) Object aggregator, @Advice.Return Object returned)
+        {
+            if (!emit)
             {
                 return;
             }
 
-            StreamsDslAttestation.attest(
-                    "aggregate",
-                    aggregator);
+            StreamsDslAttestation.attest("aggregate", aggregator);
+            DslGraphTracker.recordUnary("aggregate", stream, returned, null, aggregator, false, false);
         }
     }
 
@@ -276,25 +262,22 @@ public class KafkaEntrypointAdvice
         @Advice.OnMethodEnter
         public static boolean enter()
         {
-            if (!StreamsDslAttestation
-                    .enterOperator("count"))
+            if (!StreamsDslAttestation.enterOperator("count"))
             {
                 return false;
             }
 
             System.out.println("[POLICY][ATTEST] topology.statement=count()");
-
             return true;
         }
 
         @Advice.OnMethodExit(onThrowable = Throwable.class)
-        public static void exit(
-                @Advice.Enter boolean emitted)
+        public static void exit(@Advice.Enter boolean emitted, @Advice.This Object stream, @Advice.Return Object returned)
         {
             if (emitted)
             {
-                StreamsDslAttestation
-                        .exitOperator("count");
+                StreamsDslAttestation.exitOperator("count");
+                DslGraphTracker.recordUnary("count", stream, returned, null, null, false, false);
             }
         }
     }
@@ -302,173 +285,162 @@ public class KafkaEntrypointAdvice
     public static class WindowedByAdvice
     {
         @Advice.OnMethodEnter
-        public static void enter(
-                @Advice.Argument(0)
-                Object windows)
+        public static Object[] enter(@Advice.Argument(0) Object windows)
         {
-            if (!StreamsDslAttestation
-                    .shouldEmitUserDsl(
-                            "windowedBy"))
+            if (!StreamsDslAttestation.shouldEmitUserDsl("windowedBy"))
             {
-                return;
+                return new Object[]{false, windows, String.valueOf(windows)};
             }
 
             try
             {
-                Class<?> cls =
-                        windows.getClass();
+                Class<?> cls = windows.getClass();
+                Method sizeMethod = cls.getMethod("sizeMs");
+                Method graceMethod = cls.getMethod("gracePeriodMs");
 
-                Method sizeMethod =
-                        cls.getMethod("sizeMs");
+                Object size = sizeMethod.invoke(windows);
+                Object grace = graceMethod.invoke(windows);
+                String semantics = cls.getSimpleName() + "[sizeMs=" + size + ",graceMs=" + grace + "]";
 
-                Method graceMethod =
-                        cls.getMethod("gracePeriodMs");
-
-                Object size =
-                        sizeMethod.invoke(windows);
-
-                Object grace =
-                        graceMethod.invoke(windows);
-
-                System.out.println(
-                        "[POLICY][ATTEST] topology.statement=windowedBy("
-                                + cls.getSimpleName()
-                                + "[sizeMs="
-                                + size
-                                + ",graceMs="
-                                + grace
-                                + "])");
+                System.out.println("[POLICY][ATTEST] topology.statement=windowedBy(" + semantics + ")");
+                return new Object[]{true, windows, semantics};
             }
             catch (Throwable ignored)
             {
-                System.out.println(
-                        "[POLICY][ATTEST] topology.statement=windowedBy("
-                                + windows
-                                + ")");
+                String semantics = String.valueOf(windows);
+                System.out.println("[POLICY][ATTEST] topology.statement=windowedBy(" + semantics + ")");
+                return new Object[]{true, windows, semantics};
             }
+        }
+
+        @Advice.OnMethodExit
+        public static void exit(@Advice.Enter Object[] state, @Advice.This Object stream, @Advice.Return Object returned)
+        {
+            if (!(boolean) state[0])
+            {
+                return;
+            }
+
+            DslGraphTracker.recordUnary("windowedBy", stream, returned, state[2], null, false, false);
         }
     }
 
     public static class JoinAdvice
     {
         @Advice.OnMethodEnter
-        public static void enter(
-                @Advice.Origin("#m")
-                String method)
+        public static Object[] enter(@Advice.Origin("#m") String method, @Advice.Argument(0) Object other, @Advice.AllArguments Object[] args)
         {
-            if (!StreamsDslAttestation
-                    .shouldEmitUserDsl(method))
+            if (!StreamsDslAttestation.shouldEmitUserDsl(method))
+            {
+                return new Object[]{false, method, other, null};
+            }
+
+            Object joiner = args != null && args.length > 1 ? args[1] : null;
+            System.out.println("[POLICY][ATTEST] topology.statement=" + method + "(...)");
+            if (joiner != null)
+            {
+                StreamsDslAttestation.attest(method, joiner);
+            }
+            return new Object[]{true, method, other, joiner};
+        }
+
+        @Advice.OnMethodExit
+        public static void exit(@Advice.Enter Object[] state, @Advice.This Object left, @Advice.Return Object returned)
+        {
+            if (!(boolean) state[0])
             {
                 return;
             }
-
-            System.out.println(
-                    "[POLICY][ATTEST] topology.statement="
-                            + method
-                            + "(...)");
+            DslGraphTracker.recordJoin((String) state[1], left, state[2], returned, state[3]);
         }
     }
 
     public static class BranchAdvice
     {
         @Advice.OnMethodEnter
-        public static void enter(
-                @Advice.Argument(0)
-                Object predicates)
+        public static boolean enter()
         {
-            if (!StreamsDslAttestation
-                    .shouldEmitUserDsl(
-                            "branch"))
+            return StreamsDslAttestation.shouldEmitUserDsl("branch");
+        }
+
+        @Advice.OnMethodExit
+        public static void exit(@Advice.Enter boolean emit, @Advice.This Object stream, @Advice.Argument(0) Object predicates, @Advice.Return Object[] branches)
+        {
+            if (!emit)
             {
                 return;
             }
 
-            System.out.println(
-                    "[POLICY][ATTEST] topology.statement=branch(...)");
+            System.out.println("[POLICY][ATTEST] topology.statement=branch(...)");
+            DslGraphTracker.recordBranch(stream, branches, predicates);
         }
     }
 
     public static class InternalTopicAdvice
     {
         @Advice.OnMethodEnter
-        public static void enter(
-                @Advice.Argument(0)
-                String topic)
+        public static void enter(@Advice.Argument(0) String topic)
         {
-            System.out.println(
-                    "[POLICY][ATTEST] internal.topic="
-                            + topic);
+            System.out.println("[POLICY][ATTEST] internal.topic=" + topic);
         }
     }
 
     public static class StateStoreAdvice
     {
         @Advice.OnMethodEnter
-        public static void enter(
-                @Advice.Argument(0)
-                Object store)
+        public static void enter(@Advice.Argument(0) Object store)
         {
-            System.out.println(
-                    "[POLICY][ATTEST] state.store="
-                            + store);
+            System.out.println("[POLICY][ATTEST] state.store=" + store);
         }
     }
 
     public static class ProcessorAdvice
     {
         @Advice.OnMethodEnter
-        public static void enter(
-                @Advice.Argument(0)
-                String name)
+        public static void enter(@Advice.Argument(0) String name)
         {
-            System.out.println(
-                    "[POLICY][ATTEST] processor="
-                            + name);
+            System.out.println("[POLICY][ATTEST] processor=" + name);
         }
     }
 
     public static class ToStreamAdvice
     {
         @Advice.OnMethodEnter
-        public static void enter()
+        public static boolean enter()
         {
-            if (!StreamsDslAttestation
-                    .shouldEmitUserDsl(
-                            "toStream"))
+            return StreamsDslAttestation.shouldEmitUserDsl("toStream");
+        }
+
+        @Advice.OnMethodExit
+        public static void exit(@Advice.Enter boolean emit, @Advice.This Object stream, @Advice.Return Object returned)
+        {
+            if (!emit)
             {
                 return;
             }
 
-            System.out.println(
-                    "[POLICY][ATTEST] topology.statement=toStream()");
+            System.out.println("[POLICY][ATTEST] topology.statement=toStream()");
+            DslGraphTracker.recordUnary("toStream", stream, returned, null, null, false, false);
         }
     }
 
     public static class ToAdvice
     {
         @Advice.OnMethodEnter
-        public static void enter(
-                @Advice.Argument(0)
-                Object topic)
+        public static void enter(@Advice.This Object stream, @Advice.Argument(0) Object topic)
         {
-            if (!StreamsDslAttestation
-                    .shouldEmitUserDsl(
-                            "to"))
+            if (!StreamsDslAttestation.shouldEmitUserDsl("to"))
             {
                 return;
             }
 
-            if (topic != null &&
-                    topic.toString().contains(
-                            "StaticTopicNameExtractor"))
+            if (topic != null && topic.toString().contains("StaticTopicNameExtractor"))
             {
                 return;
             }
 
-            System.out.println(
-                    "[POLICY][ATTEST] topology.statement=to("
-                            + topic
-                            + ")");
+            System.out.println("[POLICY][ATTEST] topology.statement=to(" + topic + ")");
+            DslGraphTracker.recordUnary("to", stream, null, topic, null, false, true);
         }
     }
 }

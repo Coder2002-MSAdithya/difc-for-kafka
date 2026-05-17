@@ -12,12 +12,30 @@ public class LambdaMetafactoryAdvice
     @Advice.OnMethodExit
     public static void exit(
             @Advice.This Object self,
-
-            @Advice.Argument(5)
-            MethodHandle implMethod)
+            @Advice.AllArguments Object[] args)
     {
         try
         {
+            MethodHandle implMethod =
+                    null;
+
+            if (args != null)
+            {
+                for (Object arg : args)
+                {
+                    if (arg instanceof MethodHandle mh)
+                    {
+                        implMethod = mh;
+                        break;
+                    }
+                }
+            }
+
+            if (implMethod == null)
+            {
+                return;
+            }
+
             Field lambdaClassNameField =
                     self.getClass()
                             .getDeclaredField(
