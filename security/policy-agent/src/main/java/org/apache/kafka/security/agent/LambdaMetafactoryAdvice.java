@@ -16,8 +16,7 @@ public class LambdaMetafactoryAdvice
     {
         try
         {
-            MethodHandle implMethod =
-                    null;
+            MethodHandle implMethod = null;
 
             if (args != null)
             {
@@ -36,6 +35,12 @@ public class LambdaMetafactoryAdvice
                 return;
             }
 
+            MethodHandles.Lookup lookup =
+                    MethodHandles.lookup();
+
+            MethodHandleInfo info =
+                    lookup.revealDirect(implMethod);
+
             Field lambdaClassNameField =
                     self.getClass()
                             .getDeclaredField(
@@ -49,11 +54,6 @@ public class LambdaMetafactoryAdvice
 
             generatedClass =
                     generatedClass.replace('/', '.');
-
-            MethodHandleInfo info =
-                    MethodHandles.lookup()
-                            .revealDirect(
-                                    implMethod);
 
             String implClass =
                     info.getDeclaringClass()
@@ -71,10 +71,22 @@ public class LambdaMetafactoryAdvice
                     implClass,
                     implMethodName,
                     implDesc);
-        }
-        catch (Throwable ignored)
-        {
 
+            System.out.println(
+                    "[POLICY][LAMBDA-REGISTER] "
+                            + generatedClass
+                            + " -> "
+                            + implClass
+                            + "::"
+                            + implMethodName);
+        }
+        catch (Throwable t)
+        {
+            System.out.println(
+                    "[POLICY][LAMBDA-REGISTER-FAIL] "
+                            + t);
+
+            t.printStackTrace(System.out);
         }
     }
 }

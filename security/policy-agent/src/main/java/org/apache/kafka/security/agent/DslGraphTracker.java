@@ -1,7 +1,6 @@
 package org.apache.kafka.security.agent;
 
-import org.objectweb.asm.ClassReader;
-import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.*;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.LdcInsnNode;
@@ -26,6 +25,8 @@ import java.util.Map;
 public final class DslGraphTracker {
     private static final Object LOCK = new Object();
     private static final IdentityHashMap<Object, String> OBJECT_NODE = new IdentityHashMap<>();
+    private static final Map<String, String> TOPIC_NODES = new LinkedHashMap<>();
+    private static final Map<String, String> STORE_NODES = new LinkedHashMap<>();
     private static final LinkedHashMap<String, Node> NODES = new LinkedHashMap<>();
     private static final List<Edge> EDGES = new ArrayList<>();
     private static int nodeSeq = 1;
@@ -37,44 +38,226 @@ public final class DslGraphTracker {
 
     private DslGraphTracker() {}
 
-    public static void recordSource(Object returned, Object topics) {
-        recordUnary("from", null, returned, normalize(topics), null, true, false);
+    public static void recordSource(Object returned, Object topics)
+    {
+        synchronized (LOCK)
+        {
+            String streamNode = ensureNode(returned, "sourceStream");
+
+            if (topics instanceof Iterable<?> iterable)
+            {
+                for (Object topic : iterable)
+                {
+                    String topicNode =
+                            ensureTopicNode(normalize(topic));
+
+                    EDGES.add(new Edge(topicNode, streamNode, "source"));
+                }
+            }
+            else if (topics instanceof String[])
+            {
+                for (String topic : (String[]) topics)
+                {
+                    String topicNode =
+                            ensureTopicNode(topic);
+
+                    EDGES.add(
+                            new Edge(
+                                    topicNode,
+                                    streamNode,
+                                    "source"));
+                }
+            }
+            else
+            {
+                String topicNode =
+                        ensureTopicNode(
+                                normalize(topics));
+
+                EDGES.add(
+                        new Edge(
+                                topicNode,
+                                streamNode,
+                                "source"));
+            }
+
+            writeDotFile();
+        }
     }
 
     public static void recordUnary(String operator, Object upstream, Object returned, Object arg, Object function, boolean source, boolean sink) {
         synchronized (LOCK) {
             String inNode = source ? null : ensureNode(upstream, "stream");
             String outNode = sink ? ensureNode(upstream, "stream") : ensureNode(returned, operator + "Out");
-            String opId = "op" + (nodeSeq++);
-            String semantics = operator + formatSemantics(operator, arg, function);
-            Node opNode = new Node(opId, "operator", semantics, false);
-            NODES.put(opId, opNode);
+            String semantics =
+                    operator
+                            + formatSemantics(
+                            operator,
+                            arg,
+                            function);
+
+            String opId =
+                    createOperatorNode(
+                            operator,
+                            semantics,
+                            "box");
             if (inNode != null) EDGES.add(new Edge(inNode, opId, "input"));
-            if (!sink) {
-                EDGES.add(new Edge(opId, outNode, "output"));
-            } else {
-                String sinkId = "sink" + (nodeSeq++);
-                Node sinkNode = new Node(sinkId, "sink", "to(" + normalize(arg) + ")", false);
-                NODES.put(sinkId, sinkNode);
-                EDGES.add(new Edge(opId, sinkId, "writes"));
+            if (!sink)
+            {
+                EDGES.add(
+                        new Edge(
+                                opId,
+                                outNode,
+                                "output"));
+            }
+            else
+            {
+                String sinkTopic =
+                        ensureTopicNode(
+                                normalize(arg));
+
+                EDGES.add(
+                        new Edge(
+                                opId,
+                                sinkTopic,
+                                "writes"));
             }
             writeDotFile();
         }
     }
 
-    private static String ensureNode(Object ref, String fallback) {
-        if (ref == null) {
-            String n = "anon" + (nodeSeq++);
-            NODES.put(n, new Node(n, "stream", fallback, true));
-            return n;
+    private static String ensureNode(Object ref, String fallback)
+    {
+        if (ref == null)
+        {
+            String id = "anon_" + (nodeSeq++);
+
+            NODES.put(
+                    id,
+                    new Node(
+                            id,
+                            "stream",
+                            fallback,
+                            true,
+                            "ellipse",
+                            "#FDEBD0"));
+
+            return id;
         }
+
         String existing = OBJECT_NODE.get(ref);
-        if (existing != null) return existing;
-        String id = "n" + (nodeSeq++);
-        String label = fallback + "\n" + ref.getClass().getSimpleName();
-        boolean synthetic = fallback.endsWith("Out") || "stream".equals(fallback);
-        NODES.put(id, new Node(id, "stream", label, synthetic));
+
+        if (existing != null)
+        {
+            return existing;
+        }
+
+        String id = "stream_" + (nodeSeq++);
+
+        String simple =
+                ref.getClass().getSimpleName();
+
+        String label =
+                switch (simple)
+                {
+                    case "KStreamImpl" -> "KStream";
+                    case "KTableImpl" -> "KTable";
+                    case "KGroupedStreamImpl" -> "KGroupedStream";
+                    case "TimeWindowedKStreamImpl" -> "TimeWindowedKStream";
+                    case "SessionWindowedKStreamImpl" -> "SessionWindowedKStream";
+                    default -> simple;
+                };
+
+        NODES.put(
+                id,
+                new Node(
+                        id,
+                        "stream",
+                        label,
+                        false,
+                        "ellipse",
+                        "#FCF3CF"));
+
         OBJECT_NODE.put(ref, id);
+
+        return id;
+    }
+
+    private static String ensureTopicNode(String topic)
+    {
+        String normalized =
+                topic.replaceAll("[^A-Za-z0-9_\\-]", "_");
+
+        String existing = TOPIC_NODES.get(normalized);
+
+        if (existing != null)
+        {
+            return existing;
+        }
+
+        String id = "topic_" + normalized;
+
+        NODES.put(
+                id,
+                new Node(
+                        id,
+                        "topic",
+                        "topic:" + topic,
+                        false,
+                        "cylinder",
+                        "#D6EAF8"));
+
+        TOPIC_NODES.put(normalized, id);
+
+        return id;
+    }
+
+    private static String ensureStateStoreNode(String store)
+    {
+        String normalized =
+                store.replaceAll("[^A-Za-z0-9_\\-]", "_");
+
+        String existing = STORE_NODES.get(normalized);
+
+        if (existing != null)
+        {
+            return existing;
+        }
+
+        String id = "store_" + normalized;
+
+        NODES.put(
+                id,
+                new Node(
+                        id,
+                        "stateStore",
+                        "state-store:" + store,
+                        false,
+                        "folder",
+                        "#F9E79F"));
+
+        STORE_NODES.put(normalized, id);
+
+        return id;
+    }
+
+    private static String createOperatorNode(
+            String operator,
+            String semantics,
+            String shape)
+    {
+        String id = "op_" + (nodeSeq++);
+
+        NODES.put(
+                id,
+                new Node(
+                        id,
+                        "operator",
+                        semantics,
+                        false,
+                        shape,
+                        "#E8F0FE"));
+
         return id;
     }
 
@@ -84,9 +267,18 @@ public final class DslGraphTracker {
             String rightNode = ensureNode(right, "stream");
             String outNode = ensureNode(returned, operator + "Out");
 
-            String opId = "op" + (nodeSeq++);
-            String semantics = operator + formatSemantics(operator, null, function);
-            NODES.put(opId, new Node(opId, "operator", semantics, false));
+            String semantics =
+                    operator
+                            + formatSemantics(
+                            operator,
+                            null,
+                            function);
+
+            String opId =
+                    createOperatorNode(
+                            operator,
+                            semantics,
+                            "hexagon");
 
             EDGES.add(new Edge(leftNode, opId, "left"));
             EDGES.add(new Edge(rightNode, opId, "right"));
@@ -95,20 +287,48 @@ public final class DslGraphTracker {
         }
     }
 
-    public static void recordBranch(Object upstream, Object[] branches, Object predicates) {
-        synchronized (LOCK) {
+    public static void recordBranch(Object upstream, Object[] branches, Object predicates)
+    {
+        synchronized (LOCK)
+        {
             String inNode = ensureNode(upstream, "stream");
-            String opId = "op" + (nodeSeq++);
             String semantics = "branch" + formatSemantics("branch", null, predicates);
-            NODES.put(opId, new Node(opId, "operator", semantics, false));
+            String opId = createOperatorNode("branch", semantics, "diamond");
             EDGES.add(new Edge(inNode, opId, "input"));
 
-            if (branches != null) {
-                for (int i = 0; i < branches.length; i++) {
+            if (branches != null)
+            {
+                for (int i = 0; i < branches.length; i++)
+                {
                     String out = ensureNode(branches[i], "branchOut" + i);
                     EDGES.add(new Edge(opId, out, "branch[" + i + "]"));
                 }
             }
+            writeDotFile();
+        }
+    }
+
+    public static void recordThrough(Object input, Object output, Object topic)
+    {
+        synchronized (LOCK)
+        {
+            String in = ensureNode(input, "stream");
+            String out = ensureNode(output, "stream");
+            String topicNode = ensureTopicNode(normalize(topic));
+            EDGES.add(new Edge(in, topicNode, "through-write"));
+            EDGES.add(new Edge(topicNode, out, "through-read"));
+            writeDotFile();
+        }
+    }
+
+    public static void recordStateStore(
+            Object store)
+    {
+        synchronized (LOCK)
+        {
+            ensureStateStoreNode(
+                    normalize(store));
+
             writeDotFile();
         }
     }
@@ -120,21 +340,81 @@ public final class DslGraphTracker {
         return details.isEmpty() ? "()" : "(" + String.join(", ", details) + ")";
     }
 
-    private static String renderLambda(String operator, Object fn) {
+    private static String renderLambda(String operator, Object fn)
+    {
+        if (fn == null)
+        {
+            return "null";
+        }
+
         SerializedLambda sl = toSerializedLambda(fn);
-        if (sl != null) {
+
+        if (sl != null)
+        {
             debug("serialized-lambda hit", operator, fn.getClass().getName(), sl.getImplClass() + "::" + sl.getImplMethodName());
-            return renderLambda(operator, sl.getImplClass(), sl.getImplMethodName(), sl.getImplMethodSignature());
+
+            String rendered =
+                    renderLambda(
+                            operator,
+                            sl.getImplClass(),
+                            sl.getImplMethodName(),
+                            sl.getImplMethodSignature());
+
+            if (rendered != null)
+            {
+                return rendered;
+            }
         }
 
-        LambdaRegistry.LambdaInfo info = LambdaRegistry.lookup(fn.getClass());
-        if (info != null) {
-            debug("registry hit", operator, fn.getClass().getName(), info.implClass + "::" + info.implMethod);
-            return renderLambda(operator, info.implClass.replace('.', '/'), info.implMethod, info.implDesc);
+        LambdaRegistry.LambdaInfo info =
+                LambdaRegistry.lookup(
+                        fn.getClass());
+
+        if (info != null)
+        {
+            debug(
+                    "registry hit",
+                    operator,
+                    fn.getClass().getName(),
+                    info.implClass
+                            + "::"
+                            + info.implMethod);
+
+            String rendered =
+                    renderLambda(
+                            operator,
+                            info.implClass.replace('.', '/'),
+                            info.implMethod,
+                            info.implDesc);
+
+            if (rendered != null)
+            {
+                return rendered;
+            }
         }
 
-        debug("fallback fn class", operator, fn.getClass().getName(), "no serialized/registry match");
-        return "fn=" + fn.getClass().getName();
+        String recovered =
+                resolveLambdaFromCapturingClass(fn);
+
+        if (recovered != null)
+        {
+            debug(
+                    "capturing-class hit",
+                    operator,
+                    fn.getClass().getName(),
+                    recovered);
+
+            return recovered;
+        }
+
+        debug(
+                "fallback fn class",
+                operator,
+                fn.getClass().getName(),
+                "no serialized/registry/capturing match");
+
+        return "fn="
+                + fn.getClass().getName();
     }
 
     private static String renderLambda(String operator, String implClass, String implMethod, String methodDesc) {
@@ -279,6 +559,23 @@ public final class DslGraphTracker {
                 }
             }
 
+            if (insn instanceof org.objectweb.asm.tree.FieldInsnNode fi)
+            {
+                if (op == Opcodes.GETFIELD
+                        || op == Opcodes.GETSTATIC)
+                {
+                    String owner =
+                            fi.owner.replace('/', '.');
+
+                    stack.push(
+                            owner
+                                    + "."
+                                    + fi.name);
+
+                    continue;
+                }
+            }
+
             if (insn instanceof LdcInsnNode ldc)
             {
                 stack.push(String.valueOf(ldc.cst));
@@ -299,12 +596,48 @@ public final class DslGraphTracker {
 
             if (insn instanceof org.objectweb.asm.tree.MethodInsnNode mi)
             {
-                if (mi.owner.equals("java/lang/Integer") && mi.name.equals("parseInt") && !stack.isEmpty())
+                int argCount =
+                        countParams(mi.desc);
+
+                List<String> callArgs =
+                        new ArrayList<>();
+
+                for (int i = 0; i < argCount; i++)
                 {
-                    String v = stack.pop();
-                    stack.push("Integer.parseInt(" + v + ")");
-                    continue;
+                    if (!stack.isEmpty())
+                    {
+                        callArgs.add(0, stack.pop());
+                    }
                 }
+
+                String owner =
+                        mi.owner.replace('/', '.');
+
+                String methodCall =
+                        owner
+                                + "."
+                                + mi.name
+                                + "("
+                                + String.join(", ", callArgs)
+                                + ")";
+
+                if (mi.getOpcode() != Opcodes.INVOKESTATIC
+                        && !stack.isEmpty())
+                {
+                    String receiver = stack.pop();
+
+                    methodCall =
+                            receiver
+                                    + "."
+                                    + mi.name
+                                    + "("
+                                    + String.join(", ", callArgs)
+                                    + ")";
+                }
+
+                stack.push(methodCall);
+
+                continue;
             }
 
             if ((op == Opcodes.IADD || op == Opcodes.ISUB || op == Opcodes.IMUL || op == Opcodes.IDIV) && stack.size() >= 2)
@@ -391,6 +724,206 @@ public final class DslGraphTracker {
                 + " detail=" + detail);
     }
 
+    private static String resolveLambdaFromCapturingClass(Object fn)
+    {
+        try
+        {
+            String lambdaName = fn.getClass().getName();
+
+            int idx = lambdaName.indexOf("$$Lambda");
+
+            if (idx < 0)
+            {
+                return null;
+            }
+
+            String capturingClass = lambdaName.substring(0, idx);
+
+            Class<?> owner = Class.forName(capturingClass);
+
+            String resource = "/" + capturingClass.replace('.', '/') + ".class";
+
+            try (InputStream in = owner.getResourceAsStream(resource))
+            {
+                if (in == null)
+                {
+                    return null;
+                }
+
+                ClassReader cr = new ClassReader(in);
+
+                final java.util.List<String> candidates = new java.util.ArrayList<>();
+
+                cr.accept(new ClassVisitor(Opcodes.ASM9)
+                        {
+                            @Override
+                            public MethodVisitor visitMethod(
+                                    int access,
+                                    String name,
+                                    String desc,
+                                    String sig,
+                                    String[] ex)
+                            {
+                                return new MethodVisitor(Opcodes.ASM9)
+                                {
+                                    @Override
+                                    public void visitInvokeDynamicInsn(
+                                            String indyName,
+                                            String indyDesc,
+                                            Handle bsm,
+                                            Object... bsmArgs)
+                                    {
+                                        for (Object arg : bsmArgs)
+                                        {
+                                            if (arg instanceof Handle h)
+                                            {
+                                                if (h.getName()
+                                                        .startsWith(
+                                                                "lambda$"))
+                                                {
+                                                    MethodNode target =
+                                                            findMethod(
+                                                                    owner,
+                                                                    h.getName(),
+                                                                    h.getDesc());
+
+                                                    if (target == null)
+                                                    {
+                                                        continue;
+                                                    }
+
+                                                    String[] params =
+                                                            lambdaArgNames(
+                                                                    "lambda",
+                                                                    countParams(
+                                                                            target.desc));
+
+                                                    String expr =
+                                                            trySymbolicExpression(
+                                                                    target,
+                                                                    params);
+
+                                                    if (expr != null)
+                                                    {
+                                                        candidates.add(expr);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                };
+                            }
+                        },
+                        0);
+
+                if (candidates.isEmpty())
+                {
+                    return null;
+                }
+
+                candidates.sort(
+                        (a, b) ->
+                                Integer.compare(
+                                        scoreExpr(b),
+                                        scoreExpr(a)));
+
+                return candidates.get(0);
+            }
+        }
+        catch (Throwable t)
+        {
+            debug(
+                    "capturing-class-failed",
+                    fn.getClass().getName(),
+                    "",
+                    t.toString());
+        }
+
+        return null;
+    }
+
+    private static int scoreExpr(String expr)
+    {
+        int score = 0;
+
+        if (expr == null)
+        {
+            return score;
+        }
+
+        if (expr.contains(".")) score += 5;
+
+        if (expr.contains("(")) score += 5;
+
+        if (expr.contains("+")) score += 4;
+
+        if (expr.contains("-")) score += 4;
+
+        if (expr.contains("*")) score += 4;
+
+        if (expr.contains("/")) score += 4;
+
+        if (expr.contains(">")) score += 4;
+
+        if (expr.contains("<")) score += 4;
+
+        if (expr.contains("==")) score += 4;
+
+        if (expr.contains("split")) score += 10;
+
+        if (expr.contains("map")) score += 5;
+
+        if (expr.contains("filter")) score += 5;
+
+        if (expr.length() > 20) score += 3;
+
+        if (expr.contains("arg0")) score -= 2;
+
+        if (expr.contains("arg1")) score -= 2;
+
+        return score;
+    }
+
+    private static MethodNode findMethod(Class<?> owner, String methodName, String methodDesc)
+    {
+        try
+        {
+            String resource = "/" + owner.getName().replace('.', '/') + ".class";
+
+            try (InputStream in =
+                         owner.getResourceAsStream(resource))
+            {
+                if (in == null)
+                {
+                    return null;
+                }
+
+                ClassReader cr =
+                        new ClassReader(in);
+
+                ClassNode cn =
+                        new ClassNode();
+
+                cr.accept(cn, 0);
+
+                for (MethodNode mn : cn.methods)
+                {
+                    if (mn.name.equals(methodName)
+                            && mn.desc.equals(methodDesc))
+                    {
+                        return mn;
+                    }
+                }
+            }
+        }
+        catch (Throwable ignored)
+        {
+
+        }
+
+        return null;
+    }
+
     private static SerializedLambda toSerializedLambda(Object lambda) {
         try {
             Method m = lambda.getClass().getDeclaredMethod("writeReplace");
@@ -404,48 +937,161 @@ public final class DslGraphTracker {
 
     private static String normalize(Object o) { return o == null ? "null" : String.valueOf(o).replace("\"", "'"); }
 
-    public static void writeDotFile() {
-        synchronized (LOCK) {
-            String path = System.getProperty("policy.dsl.dot.path", "build/reports/policy-dsl-topology.dot");
-            Path dotPath = Paths.get(path).toAbsolutePath();
+    public static void writeDotFile()
+    {
+        synchronized (LOCK)
+        {
+            String path =
+                    System.getProperty(
+                            "policy.dsl.dot.path",
+                            "build/reports/policy-dsl-topology.dot");
+
+            Path dotPath =
+                    Paths.get(path).toAbsolutePath();
+
             StringBuilder sb = new StringBuilder();
+
             sb.append("digraph KafkaDsl {\n");
-            sb.append("  rankdir=LR;\n  node [shape=box, style=rounded];\n");
+
+            sb.append("  rankdir=LR;\n\n");
+
             sb.append("  subgraph cluster_legend {\n");
             sb.append("    label=\"Legend\";\n");
-            sb.append("    keySynthetic [label=\"Synthetic stream node\", style=\"rounded,filled\", fillcolor=\"#FFE9A8\"];\n");
-            sb.append("    keyNormal [label=\"Operator/Sink node\", style=\"rounded,filled\", fillcolor=\"#E8F0FE\"];\n");
-            sb.append("  }\n");
-            for (Node node : NODES.values()) {
-                String style = node.synthetic ? "rounded,filled" : "rounded";
-                String fillColor = node.synthetic ? "#FFE9A8" : "#E8F0FE";
-                sb.append("  ").append(node.id)
-                        .append(" [label=\"").append(escape(node.label))
-                        .append("\", class=\"").append(node.kind)
-                        .append("\", style=\"").append(style)
-                        .append("\", fillcolor=\"").append(fillColor)
+
+            sb.append(
+                    "    keyTopic "
+                            + "[label=\"Kafka Topic\", "
+                            + "shape=\"cylinder\", "
+                            + "style=\"filled\", "
+                            + "fillcolor=\"#D6EAF8\"];\n");
+
+            sb.append(
+                    "    keyStream "
+                            + "[label=\"Kafka Stream\", "
+                            + "shape=\"ellipse\", "
+                            + "style=\"filled\", "
+                            + "fillcolor=\"#FCF3CF\"];\n");
+
+            sb.append(
+                    "    keyOperator "
+                            + "[label=\"DSL Operator\", "
+                            + "shape=\"box\", "
+                            + "style=\"filled\", "
+                            + "fillcolor=\"#E8F0FE\"];\n");
+
+            sb.append(
+                    "    keyBranch "
+                            + "[label=\"Branch Operator\", "
+                            + "shape=\"diamond\", "
+                            + "style=\"filled\", "
+                            + "fillcolor=\"#E8F0FE\"];\n");
+
+            sb.append(
+                    "    keyJoin "
+                            + "[label=\"Join/Merge Operator\", "
+                            + "shape=\"hexagon\", "
+                            + "style=\"filled\", "
+                            + "fillcolor=\"#E8F0FE\"];\n");
+
+            sb.append(
+                    "    keyStore "
+                            + "[label=\"State Store\", "
+                            + "shape=\"folder\", "
+                            + "style=\"filled\", "
+                            + "fillcolor=\"#F9E79F\"];\n");
+
+            sb.append("  }\n\n");
+
+            for (Node node : NODES.values())
+            {
+                sb.append("  \"")
+                        .append(node.id)
+                        .append("\" ");
+
+                sb.append("[label=\"")
+                        .append(escape(node.label))
+                        .append("\"");
+
+                sb.append(", class=\"")
+                        .append(node.kind)
+                        .append("\"");
+
+                sb.append(", shape=\"")
+                        .append(node.shape)
+                        .append("\"");
+
+                sb.append(", style=\"filled,rounded\"");
+
+                sb.append(", fillcolor=\"")
+                        .append(node.fillColor)
+                        .append("\"");
+
+                sb.append("];\n");
+            }
+
+            sb.append("\n");
+
+            for (Edge edge : EDGES)
+            {
+                sb.append("  \"")
+                        .append(edge.from)
+                        .append("\" -> \"")
+                        .append(edge.to)
+                        .append("\"");
+
+                sb.append(" [label=\"")
+                        .append(escape(edge.label))
                         .append("\"];\n");
             }
-            for (Edge edge : EDGES) {
-                sb.append("  ").append(edge.from).append(" -> ").append(edge.to).append(" [label=\"").append(escape(edge.label)).append("\"];\n");
-            }
-            sb.append("  graph [label=\"Generated at ").append(Instant.now()).append("\"];\n}");
-            try {
+
+            sb.append("\n");
+
+            sb.append("  graph [label=\"Generated at ")
+                    .append(Instant.now())
+                    .append("\"];\n");
+
+            sb.append("}\n");
+
+            try
+            {
                 Path parent = dotPath.getParent();
+
                 if (parent != null)
                 {
                     Files.createDirectories(parent);
                 }
 
-                Files.writeString(dotPath, sb.toString(), StandardCharsets.UTF_8);
-            } catch (IOException e) {
+                Files.writeString(
+                        dotPath,
+                        sb.toString(),
+                        StandardCharsets.UTF_8);
+            }
+            catch (IOException e)
+            {
                 throw new UncheckedIOException(e);
             }
         }
     }
 
-    private static String escape(String s) { return s.replace("\\", "\\\\").replace("\"", "\\\""); }
+    private static String escape(String s)
+    {
+        return s
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("{", "\\{")
+                .replace("}", "\\}")
+                .replace("<", "\\<")
+                .replace(">", "\\>")
+                .replace("|", "\\|");
+    }
 
-    private record Node(String id, String kind, String label, boolean synthetic) {}
+    private record Node(
+            String id,
+            String kind,
+            String label,
+            boolean synthetic,
+            String shape,
+            String fillColor)
+    {}
     private record Edge(String from, String to, String label) {}
 }

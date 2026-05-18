@@ -355,6 +355,95 @@ public class KafkaEntrypointAdvice
         }
     }
 
+    public static class MergeAdvice
+    {
+        @Advice.OnMethodEnter
+        public static boolean enter()
+        {
+            return StreamsDslAttestation
+                    .shouldEmitUserDsl("merge");
+        }
+
+        @Advice.OnMethodExit
+        public static void exit(
+                @Advice.Enter boolean emit,
+                @Advice.This Object left,
+                @Advice.Argument(0) Object right,
+                @Advice.Return Object returned)
+        {
+            if (!emit)
+            {
+                return;
+            }
+
+            DslGraphTracker.recordJoin(
+                    "merge",
+                    left,
+                    right,
+                    returned,
+                    null);
+        }
+    }
+
+    public static class ThroughAdvice
+    {
+        @Advice.OnMethodEnter
+        public static boolean enter()
+        {
+            return StreamsDslAttestation
+                    .shouldEmitUserDsl("through");
+        }
+
+        @Advice.OnMethodExit
+        public static void exit(
+                @Advice.Enter boolean emit,
+                @Advice.This Object stream,
+                @Advice.Argument(0) Object topic,
+                @Advice.Return Object returned)
+        {
+            if (!emit)
+            {
+                return;
+            }
+
+            DslGraphTracker.recordThrough(
+                    stream,
+                    returned,
+                    topic);
+        }
+    }
+
+    public static class SplitAdvice
+    {
+        @Advice.OnMethodEnter
+        public static boolean enter()
+        {
+            return StreamsDslAttestation
+                    .shouldEmitUserDsl("split");
+        }
+
+        @Advice.OnMethodExit
+        public static void exit(
+                @Advice.Enter boolean emit,
+                @Advice.This Object stream,
+                @Advice.Return Object returned)
+        {
+            if (!emit)
+            {
+                return;
+            }
+
+            DslGraphTracker.recordUnary(
+                    "split",
+                    stream,
+                    returned,
+                    null,
+                    null,
+                    false,
+                    false);
+        }
+    }
+
     public static class BranchAdvice
     {
         @Advice.OnMethodEnter

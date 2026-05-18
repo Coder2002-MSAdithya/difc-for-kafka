@@ -72,19 +72,35 @@ public final class LambdaRegistry
 
         if (direct != null)
         {
+            System.out.println(
+                    "[POLICY][LAMBDA-LOOKUP] "
+                            + runtimeName
+                            + " hit=true direct");
+
             return direct;
         }
 
         String normalizedRuntime =
                 normalizeLambdaName(runtimeName);
 
-        for (Map.Entry<String, LambdaInfo> e : REGISTRY.entrySet())
+        for (java.util.Map.Entry<String, LambdaInfo> e : REGISTRY.entrySet())
         {
-            if (normalizeLambdaName(e.getKey()).equals(normalizedRuntime))
+            if (normalizeLambdaName(e.getKey())
+                    .equals(normalizedRuntime))
             {
+                System.out.println(
+                        "[POLICY][LAMBDA-LOOKUP] "
+                                + runtimeName
+                                + " hit=true normalized");
+
                 return e.getValue();
             }
         }
+
+        System.out.println(
+                "[POLICY][LAMBDA-LOOKUP] "
+                        + runtimeName
+                        + " hit=false");
 
         return null;
     }

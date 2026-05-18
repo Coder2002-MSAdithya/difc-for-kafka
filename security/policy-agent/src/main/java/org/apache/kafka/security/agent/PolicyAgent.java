@@ -1,6 +1,7 @@
 package org.apache.kafka.security.agent;
 
 import net.bytebuddy.agent.builder.AgentBuilder;
+import net.bytebuddy.asm.Advice;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -10,8 +11,6 @@ import java.nio.file.Files;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
-
-import java.lang.invoke.LambdaMetafactory;
 
 import static net.bytebuddy.matcher.ElementMatchers.*;
 
@@ -40,15 +39,29 @@ public class PolicyAgent
                 addClassToJar(jos, SocketAdvice.SocketChannelConnectAdvice.class);
                 addClassToJar(jos, org.apache.kafka.security.agent.bootstrap.internal.SocketPolicyBootstrap.class);
                 addClassToJar(jos, org.apache.kafka.security.agent.bootstrap.internal.SocketPolicyBootstrap.KafkaClientType.class);
+                addClassToJar(jos, LambdaMetafactoryAdvice.class);
+                addClassToJar(jos, LambdaObjectCtorAdvice.class);
+                addClassToJar(jos, LambdaRegistry.class);
+                addClassToJar(jos, LambdaRegistry.LambdaInfo.class);
             }
 
             inst.appendToBootstrapClassLoaderSearch(new JarFile(tempJar));
+            System.out.println(
+                    "[POLICY][BOOT] bootstrap append installed");
 
-            AgentBuilder agentBuilder = new AgentBuilder.Default().ignore(
-                    nameStartsWith("net.bytebuddy.")
-                            .or(nameStartsWith("sun.reflect"))
-                            .or(nameStartsWith("jdk.internal.reflect"))
-            );
+            AgentBuilder agentBuilder =
+                    new AgentBuilder.Default()
+                            .disableClassFormatChanges()
+                            .with(AgentBuilder.RedefinitionStrategy.RETRANSFORMATION)
+                            .ignore(nameStartsWith("net.bytebuddy.").or(nameStartsWith("sun.reflect")).or(nameStartsWith("jdk.internal.reflect")));
+
+            agentBuilder = agentBuilder
+                            .type(named("java.lang.invoke.InnerClassLambdaMetafactory"))
+                            .transform((b, td, cl, m, pd) -> {
+                                        System.out.println("[POLICY][BOOT] transforming " + td.getName());
+                                        return b.visit(Advice.to(LambdaMetafactoryAdvice.class)
+                                                        .on(named("spinInnerClass").or(named("buildCallSite"))));
+                                    });
 
             // ========================================================
             // KafkaProducer
@@ -234,6 +247,8 @@ public class PolicyAgent
                                     .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.GroupByKeyAdvice.class).on(named("groupByKey")))
                                     .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.ToAdvice.class).on(named("to")))
                                     .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.ToStreamAdvice.class).on(named("toStream")))
+                                    .visit(Advice.to(KafkaEntrypointAdvice.MergeAdvice.class).on(named("merge")))
+                                    .visit(Advice.to(KafkaEntrypointAdvice.ThroughAdvice.class).on(named("through")))
                     );
 
 
@@ -254,14 +269,7 @@ public class PolicyAgent
                     .transform((b, td, cl, m, pd) ->
                             b.visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.WindowedByAdvice.class).on(named("windowedBy"))));
 
-            // ========================================================
-            // Hidden lambda generation instrumentation
-            // ========================================================
-            agentBuilder = agentBuilder.type(named("java.lang.invoke.InnerClassLambdaMetafactory"))
-                    .transform((b, td, cl, m, pd) ->
-                            b.visit(net.bytebuddy.asm.Advice.to(LambdaMetafactoryAdvice.class)
-                                    .on(named("spinInnerClass").or(named("buildCallSite"))))
-                    );
+
 
             // ========================================================
             // TimeWindowedCogroupedKStreamImpl
