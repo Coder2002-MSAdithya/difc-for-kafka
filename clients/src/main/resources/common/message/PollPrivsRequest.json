@@ -2,7 +2,7 @@
   "apiKey": 115,
   "type": "request",
   "name": "PollPrivsReqRequest",
-  "listeners": ["broker"],
+  "listeners": ["broker", "controller"],
   "validVersions": "0",
   "flexibleVersions": "0+",
   "fields": []

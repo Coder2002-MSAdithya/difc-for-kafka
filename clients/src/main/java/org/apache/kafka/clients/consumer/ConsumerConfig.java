@@ -440,7 +440,7 @@ public class ConsumerConfig extends AbstractConfig {
                                         Type.BOOLEAN,
                                         false,
                                         Importance.MEDIUM,
-                                        DIFC_DUMMY_POLLING_ENABLED_DOC)
+                                        DIFC_POLL_PRIVS_REQ_ENABLED_DOC)
                                 .define(DIFC_POLL_PRIVS_REQ_INTERVAL_MS_CONFIG,
                                         Type.LONG,
                                         1000L,

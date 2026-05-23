@@ -1,4 +1,20 @@
-package org.apache.kafka.streams.processor.internals;
+/*
+ * Licensed to the Apache Software Foundation (ASF) under one or more
+ * contributor license agreements. See the NOTICE file distributed with
+ * this work for additional information regarding copyright ownership.
+ * The ASF licenses this file to You under the Apache License, Version 2.0
+ * (the "License"); you may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package org.apache.kafka.clients.consumer.internals;
 
 import org.apache.kafka.clients.ClientRequest;
 import org.apache.kafka.clients.ClientResponse;
@@ -14,43 +30,51 @@ import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
 import org.slf4j.Logger;
 
-public class DifcStreamRequestSender implements Runnable {
+/**
+ * Background thread runnable that periodically sends {@code POLL_PRIVS_REQ} to the cluster.
+ */
+public class DifcConsumerRequestSender implements Runnable {
     private final Logger log;
     private final KafkaClient client;
+    private final ConsumerMetadata metadata;
     private final Time time;
     private final int requestTimeoutMs;
     private final long retryBackoffMs;
+    private final long pollingIntervalMs;
 
     private volatile boolean running = true;
 
-    public DifcStreamRequestSender(final LogContext logContext,
-                                   final KafkaClient client,
-                                   final Time time,
-                                   final int requestTimeoutMs,
-                                   final long retryBackoffMs) {
-        this.log = logContext.logger(DifcStreamRequestSender.class);
+    public DifcConsumerRequestSender(LogContext logContext,
+                                     KafkaClient client,
+                                     ConsumerMetadata metadata,
+                                     Time time,
+                                     int requestTimeoutMs,
+                                     long retryBackoffMs,
+                                     long pollingIntervalMs) {
+        this.log = logContext.logger(DifcConsumerRequestSender.class);
         this.client = client;
+        this.metadata = metadata;
         this.time = time;
         this.requestTimeoutMs = requestTimeoutMs;
         this.retryBackoffMs = retryBackoffMs;
+        this.pollingIntervalMs = Math.max(1L, pollingIntervalMs);
     }
 
     @Override
     public void run() {
-        log.debug("Starting Kafka Streams DIFC request thread");
+        log.debug("Starting KafkaConsumer DIFC request thread");
         try {
             while (running) {
                 try {
-                    final long now = time.milliseconds();
-                    final Node node = findReadyNode(now);
-
+                    long now = time.milliseconds();
+                    Node node = findReadyNode(now);
                     if (node == null) {
                         client.poll(retryBackoffMs, now);
                         continue;
                     }
 
-                    final PollPrivsReqRequest.Builder builder = new PollPrivsReqRequest.Builder(new PollPrivsReqRequestData());
-                    final ClientRequest request = client.newClientRequest(
+                    PollPrivsReqRequest.Builder builder = new PollPrivsReqRequest.Builder(new PollPrivsReqRequestData());
+                    ClientRequest request = client.newClientRequest(
                             node.idString(),
                             builder,
                             now,
@@ -58,35 +82,34 @@ public class DifcStreamRequestSender implements Runnable {
                             requestTimeoutMs,
                             this::handlePollPrivsResponse
                     );
-
                     client.send(request, now);
                     client.poll(requestTimeoutMs, now);
-                    Utils.sleep(1000);
-                } catch (final Throwable e) {
-                    log.warn("Error in Kafka Streams DIFC request thread", e);
+                    Utils.sleep(pollingIntervalMs);
+                } catch (Throwable e) {
+                    log.warn("Error in KafkaConsumer DIFC request thread", e);
                     Utils.sleep(retryBackoffMs);
                 }
             }
         } finally {
             try {
                 client.close();
-            } catch (final Exception e) {
-                log.warn("Failed to close DIFC Streams KafkaClient", e);
+            } catch (Exception e) {
+                log.warn("Failed to close DIFC consumer network client", e);
             }
-            log.debug("Kafka Streams DIFC request thread exited");
+            log.debug("KafkaConsumer DIFC request thread exited");
         }
     }
 
-    private void handlePollPrivsResponse(final ClientResponse response) {
+    private void handlePollPrivsResponse(ClientResponse response) {
         if (response == null) {
             return;
         }
-        final AuthenticationException authException = response.authenticationException();
+        AuthenticationException authException = response.authenticationException();
         if (authException != null) {
             log.warn("POLL_PRIVS_REQ authentication failed: {}", authException.getMessage());
             return;
         }
-        final UnsupportedVersionException versionMismatch = response.versionMismatch();
+        UnsupportedVersionException versionMismatch = response.versionMismatch();
         if (versionMismatch != null) {
             log.warn("POLL_PRIVS_REQ unsupported API version: {}", versionMismatch.getMessage());
             return;
@@ -100,7 +123,7 @@ public class DifcStreamRequestSender implements Runnable {
             log.debug("POLL_PRIVS_REQ returned no response body");
             return;
         }
-        final PollPrivsReqResponseData data = (PollPrivsReqResponseData) response.responseBody().data();
+        PollPrivsReqResponseData data = (PollPrivsReqResponseData) response.responseBody().data();
         if (data.capability() >= 0 && data.tagName() != null && !data.tagName().isEmpty()) {
             log.info("POLL_PRIVS_REQ pending request: tag={}, capability={}, requester={}",
                     data.tagName(), data.capability(), data.requesterClientId());
@@ -114,16 +137,13 @@ public class DifcStreamRequestSender implements Runnable {
         client.wakeup();
     }
 
-    private Node findReadyNode(final long nowMs) {
-        final Node node = client.leastLoadedNode(nowMs).node();
-        if (node == null) {
-            return null;
+    private Node findReadyNode(long now) {
+        metadata.requestUpdate(true);
+        for (Node node : metadata.fetch().nodes()) {
+            if (client.isReady(node, now) || client.ready(node, now)) {
+                return node;
+            }
         }
-
-        if (client.isReady(node, nowMs) || client.ready(node, nowMs)) {
-            return node;
-        }
-
         return null;
     }
 }

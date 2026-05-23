@@ -310,7 +310,6 @@ class KafkaApis(val requestChannel: RequestChannel,
     else
     {
       responseData.setErrorCode(Errors.NONE.code())
-      // Convert Java Set to Scala Iterable, then to Java List for the generated protocol class
       responseData.setLabels(clientPrivs.getTags.asScala.toList.asJava)
     }
 
@@ -563,13 +562,16 @@ class KafkaApis(val requestChannel: RequestChannel,
     Set.empty
   }
 
+  private def difcPrincipalName(request: RequestChannel.Request): String =
+    request.context.principal.getName
+
   private def allowedDeclassifyTags(record: Record,
-                                     senderClientId: String,
+                                     senderPrincipal: String,
                                    ): Set[String] = {
     val requested = extractDeclassifyTags(record)
     requested.filter { tag =>
       val tagId = tagRegistrar.getTag(tag)
-      tagId >= 0 && tagRegistrar.getClient(senderClientId).canRemove(tag)
+      tagId >= 0 && tagRegistrar.canPrincipalRemove(senderPrincipal, tag)
     }
   }
 
@@ -586,11 +588,11 @@ class KafkaApis(val requestChannel: RequestChannel,
   }
 
   def rewriteTagsInRecords(records: MemoryRecords,
-                           senderClientId: String): MemoryRecords = {
-    val senderTags = tagRegistrar.getTagsForClient(senderClientId).asScala
+                           senderPrincipal: String): MemoryRecords = {
+    val senderTags = tagRegistrar.getTagsForClient(senderPrincipal).asScala
     rewriteRecordsByBatch(records, batch => batch.sizeInBytes()) { (record, builder) =>
       val messageTags = extractFirstTags(record).filter(tagRegistrar.getTag(_) >= 0)
-      val allowedRemovals = allowedDeclassifyTags(record, senderClientId)
+      val allowedRemovals = allowedDeclassifyTags(record, senderPrincipal)
       val combinedTags = (senderTags ++ messageTags) -- allowedRemovals
       val finalTagsBytes = combinedTags.mkString(":").getBytes(StandardCharsets.UTF_8)
 
@@ -607,17 +609,17 @@ class KafkaApis(val requestChannel: RequestChannel,
     }
   }
 
-  private def filterUnauthorizedRecords(records: MemoryRecords, receiverClientId: String, tagRegistrar: TagRegistrar): MemoryRecords = {
+  private def filterUnauthorizedRecords(records: MemoryRecords, receiverPrincipal: String, tagRegistrar: TagRegistrar): MemoryRecords = {
     rewriteRecordsByBatch(records, batch => batch.sizeInBytes()) { (record, builder) =>
         val messageTags = extractFirstTags(record)
-        val canReceive = tagRegistrar.canClientReceive(receiverClientId, messageTags.asJava)
+        val canReceive = tagRegistrar.canClientReceive(receiverPrincipal, messageTags.asJava)
         if (canReceive)
         {
           builder.append(record)
         }
         else
         {
-          val clientTags = tagRegistrar.getTagsForClient(receiverClientId).asScala.toSet
+          val clientTags = tagRegistrar.getTagsForClient(receiverPrincipal).asScala.toSet
           val missingTagsValue = messageTags.diff(clientTags).mkString(":")
           val newHeaders = rebuildHeaders(record, new RecordHeader("missing_tags", missingTagsValue.getBytes(StandardCharsets.UTF_8)))
           builder.append(record.timestamp(), record.key(), null, newHeaders)
@@ -630,7 +632,7 @@ class KafkaApis(val requestChannel: RequestChannel,
    */
   def handleProduceRequest(request: RequestChannel.Request, requestLocal: RequestLocal): Unit = {
     val produceRequest = request.body[ProduceRequest]
-    val senderClientId = request.context.clientId()
+    val senderPrincipal = difcPrincipalName(request)
 
     if (RequestUtils.hasTransactionalRecords(produceRequest)) {
       val isAuthorizedTransactional = produceRequest.transactionalId != null &&
@@ -655,7 +657,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       // We cast the type to avoid causing big change to code base.
       // https://issues.apache.org/jira/browse/KAFKA-10698
       val memoryRecords = partition.records.asInstanceOf[MemoryRecords]
-      val rewrittenRecords = rewriteTagsInRecords(memoryRecords, senderClientId)
+      val rewrittenRecords = rewriteTagsInRecords(memoryRecords, senderPrincipal)
       info("Rewritten Records : " + rewrittenRecords.toString)
 
       if (!authorizedTopics.contains(topicPartition.topic))
@@ -893,7 +895,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         val abortedTransactions = data.abortedTransactions.orElse(null)
         val lastStableOffset: Long = data.lastStableOffset.orElse(FetchResponse.INVALID_LAST_STABLE_OFFSET)
         if (data.isReassignmentFetch) reassigningPartitions.add(tp)
-        val filteredRecords = filterUnauthorizedRecords(toMemoryRecords(data.records), request.context.clientId(), tagRegistrar)
+        val filteredRecords = filterUnauthorizedRecords(toMemoryRecords(data.records), difcPrincipalName(request), tagRegistrar)
         val partitionData = new FetchResponseData.PartitionData()
           .setPartitionIndex(tp.partition)
           .setErrorCode(maybeDownConvertStorageError(data.error).code)

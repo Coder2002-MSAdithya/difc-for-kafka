@@ -45,12 +45,6 @@ public class TagRegistrar
         return DIFCConstants.OK;
     }
 
-    private ClientDIFCPrivs getOrCreateClient(String clientId)
-    {
-        if (!isValidClientId(clientId)) return null;
-        return clientsById.computeIfAbsent(clientId, ClientDIFCPrivs::new);
-    }
-
     public ClientDIFCPrivs getClient(String clientId)
     {
         if (!isValidClientId(clientId)) return null;
@@ -228,17 +222,32 @@ public class TagRegistrar
         return DIFCConstants.OK;
     }
 
-    public boolean canClientReceive(String receiverId, Set<String> messageTags)
+    /**
+     * Whether {@code receiverPrincipal} may read a record tagged with {@code messageTags}.
+     * Unregistered principals are treated as having an empty label set (no tags).
+     * Records with no tags (or only invalid tag names) may be received.
+     */
+    public boolean canClientReceive(String receiverPrincipal, Set<String> messageTags)
     {
-        if (messageTags != null) {
-            for (String tagName : messageTags) {
-                if (!isValidTagName(tagName)) return true;
+        if (messageTags == null || messageTags.isEmpty()) {
+            return true;
+        }
+        for (String tagName : messageTags) {
+            if (!isValidTagName(tagName)) {
+                return true;
             }
         }
-        ClientDIFCPrivs receiver = getOrCreateClient(receiverId);
-        if (receiver == null) return false;
+        ClientDIFCPrivs receiver = getClient(receiverPrincipal);
+        Set<String> receiverTags = receiver == null
+            ? Collections.emptySet()
+            : receiver.getTags();
+        return receiverTags.containsAll(messageTags);
+    }
 
-        return receiver.getTags().containsAll(messageTags);
+    public boolean canPrincipalRemove(String principalName, String tagName)
+    {
+        ClientDIFCPrivs client = getClient(principalName);
+        return client != null && client.canRemove(tagName);
     }
 
     /**

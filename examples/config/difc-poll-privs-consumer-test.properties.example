@@ -1,0 +1,6 @@
+# Optional consumer overrides for DifcPollPrivsConsumerTest (pass as last CLI argument).
+# Copy to difc-poll-privs-consumer-test.properties and fill in credentials.
+
+# security.protocol=SASL_PLAINTEXT
+# sasl.mechanism=SCRAM-SHA-256
+# sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required username="kafka" password="kafka";

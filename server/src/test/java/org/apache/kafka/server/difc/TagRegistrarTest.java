@@ -277,20 +277,33 @@ class TagRegistrarTest {
     public void testCanClientReceiveNonExistingClient()
     {
         TagRegistrar registrar = new TagRegistrar();
-        registrar.initialize();
 
-        Set<String> messageTags = new HashSet<>();
-        assertThrows(ClientNotFoundException.class, () -> registrar.canClientReceive("nonexistent", messageTags));
+        assertTrue(registrar.canClientReceive("nonexistent", new HashSet<>()));
+
+        Set<String> taggedMessage = new HashSet<>(Arrays.asList("tagX"));
+        registrar.registerClient("other");
+        registrar.createTag("tagX", "other");
+        assertFalse(registrar.canClientReceive("nonexistent", taggedMessage));
     }
 
     @Test
     public void testCanClientReceiveWithUnknownMessageTag()
     {
         TagRegistrar registrar = new TagRegistrar();
-        registrar.initialize();
 
-        Set<String> messageTags = new HashSet<>(Arrays.asList("unknownTag"));
-        // client1 tags: tagA, tagB; union: tagA, tagB, unknownTag; not subset of itself unless it has unknownTag
-        assertFalse(registrar.canClientReceive("deliverySvc", messageTags));
+        Set<String> messageTags = new HashSet<>(Arrays.asList("!!!"));
+        assertTrue(registrar.canClientReceive("nonexistent", messageTags));
+    }
+
+    @Test
+    public void testCanPrincipalRemoveRequiresRegistration()
+    {
+        TagRegistrar registrar = new TagRegistrar();
+        registrar.registerClient("owner");
+        registrar.createTag("tagX", "owner");
+        registrar.addClientPrivs("owner", "tagX", Capability.CAN_REMOVE);
+
+        assertTrue(registrar.canPrincipalRemove("owner", "tagX"));
+        assertFalse(registrar.canPrincipalRemove("unregistered", "tagX"));
     }
 }

@@ -16,12 +16,18 @@
  */
 package org.apache.kafka.clients.consumer;
 
+import org.apache.kafka.clients.ApiVersions;
 import org.apache.kafka.clients.Capability;
+import org.apache.kafka.clients.ClientUtils;
 import org.apache.kafka.clients.KafkaClient;
+import org.apache.kafka.clients.NetworkClient;
 import org.apache.kafka.clients.consumer.internals.ConsumerDelegate;
 import org.apache.kafka.clients.consumer.internals.ConsumerDelegateCreator;
 import org.apache.kafka.clients.consumer.internals.ConsumerMetadata;
+import org.apache.kafka.clients.consumer.internals.ConsumerUtils;
+import org.apache.kafka.clients.consumer.internals.DifcConsumerRequestSender;
 import org.apache.kafka.clients.consumer.internals.SubscriptionState;
+import org.apache.kafka.common.internals.ClusterResourceListeners;
 import org.apache.kafka.clients.consumer.internals.metrics.KafkaConsumerMetrics;
 import org.apache.kafka.common.KafkaException;
 import org.apache.kafka.common.Metric;
@@ -38,6 +44,7 @@ import org.apache.kafka.common.serialization.Deserializer;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Timer;
+import org.apache.kafka.common.utils.KafkaThread;
 
 import java.time.Duration;
 import java.util.Collection;
@@ -546,6 +553,9 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
     private final ConsumerDelegate<K, V> delegate;
     private final AtomicBoolean difcDummyThreadStarted = new AtomicBoolean(false);
     private volatile ScheduledExecutorService difcDummyThreadExecutor;
+    private final AtomicBoolean difcPollPrivsThreadStarted = new AtomicBoolean(false);
+    private DifcConsumerRequestSender difcPollPrivsSender;
+    private Thread difcPollPrivsThread;
 
     /**
      * A consumer is instantiated by providing a set of key-value pairs as configuration. Valid configuration strings
@@ -619,6 +629,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
     KafkaConsumer(ConsumerConfig config, Deserializer<K> keyDeserializer, Deserializer<V> valueDeserializer) {
         delegate = CREATOR.create(config, keyDeserializer, valueDeserializer);
         maybeStartDifcDummyThread(config);
+        maybeStartDifcPollPrivsThread(config);
     }
 
     KafkaConsumer(LogContext logContext,
@@ -642,6 +653,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
             assignors
         );
         maybeStartDifcDummyThread(config);
+        maybeStartDifcPollPrivsThread(config);
     }
 
     private void maybeStartDifcDummyThread(ConsumerConfig config) {
@@ -674,6 +686,82 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
             executor.shutdownNow();
             difcDummyThreadExecutor = null;
         }
+    }
+
+    private void maybeStartDifcPollPrivsThread(ConsumerConfig config) {
+        if (!config.getBoolean(ConsumerConfig.DIFC_POLL_PRIVS_REQ_ENABLED_CONFIG)) {
+            return;
+        }
+
+        if (!difcPollPrivsThreadStarted.compareAndSet(false, true)) {
+            return;
+        }
+
+        String clientId = config.getString(ConsumerConfig.CLIENT_ID_CONFIG);
+        String difcThreadName = "kafka-consumer-difc-request-thread | " + clientId;
+        this.difcPollPrivsSender = newDifcConsumerRequestSender(config);
+        this.difcPollPrivsThread = KafkaThread.daemon(difcThreadName, this.difcPollPrivsSender);
+        this.difcPollPrivsThread.start();
+    }
+
+    private DifcConsumerRequestSender newDifcConsumerRequestSender(ConsumerConfig config) {
+        String clientId = config.getString(ConsumerConfig.CLIENT_ID_CONFIG);
+        LogContext logContext = new LogContext("[Consumer clientId=" + clientId + ", difc] ");
+        Time time = Time.SYSTEM;
+        Metrics metrics = delegate.metricsRegistry();
+        ApiVersions apiVersions = new ApiVersions();
+
+        SubscriptionState subscriptions = ConsumerUtils.createSubscriptionState(config, logContext);
+        ClusterResourceListeners clusterResourceListeners = new ClusterResourceListeners();
+        ConsumerMetadata metadata = new ConsumerMetadata(config, subscriptions, logContext, clusterResourceListeners);
+        metadata.bootstrap(ClientUtils.parseAndValidateAddresses(config));
+
+        NetworkClient difcClient = ClientUtils.createNetworkClient(
+                config,
+                metrics,
+                "consumer-difc",
+                logContext,
+                apiVersions,
+                time,
+                ConsumerUtils.CONSUMER_MAX_INFLIGHT_REQUESTS_PER_CONNECTION,
+                metadata,
+                null,
+                null);
+
+        return new DifcConsumerRequestSender(
+                logContext,
+                difcClient,
+                metadata,
+                time,
+                config.getInt(ConsumerConfig.REQUEST_TIMEOUT_MS_CONFIG),
+                config.getLong(ConsumerConfig.RETRY_BACKOFF_MS_CONFIG),
+                config.getLong(ConsumerConfig.DIFC_POLL_PRIVS_REQ_INTERVAL_MS_CONFIG));
+    }
+
+    private void shutdownDifcPollPrivsThread(Duration timeout) {
+        if (difcPollPrivsThread == null) {
+            return;
+        }
+        difcPollPrivsSender.initiateClose();
+        difcPollPrivsThread.interrupt();
+        try {
+            long remainingMs = timeout.toMillis();
+            if (remainingMs > 0) {
+                difcPollPrivsThread.join(remainingMs);
+            } else {
+                difcPollPrivsThread.join();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } finally {
+            difcPollPrivsSender = null;
+            difcPollPrivsThread = null;
+        }
+    }
+
+    private void shutdownDifcBackgroundThreads(Duration timeout) {
+        shutdownDifcDummyThread();
+        shutdownDifcPollPrivsThread(timeout);
     }
 
     /**
@@ -1818,7 +1906,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
      */
     @Override
     public void close() {
-        shutdownDifcDummyThread();
+        shutdownDifcBackgroundThreads(Duration.ofMillis(Long.MAX_VALUE));
         delegate.close();
     }
 
@@ -1847,7 +1935,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
     @Override
     public void close(Duration timeout)
     {
-        shutdownDifcDummyThread();
+        shutdownDifcBackgroundThreads(timeout);
         delegate.close(timeout);
     }
 
