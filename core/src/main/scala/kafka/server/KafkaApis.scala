@@ -895,7 +895,11 @@ class KafkaApis(val requestChannel: RequestChannel,
         val abortedTransactions = data.abortedTransactions.orElse(null)
         val lastStableOffset: Long = data.lastStableOffset.orElse(FetchResponse.INVALID_LAST_STABLE_OFFSET)
         if (data.isReassignmentFetch) reassigningPartitions.add(tp)
-        val filteredRecords = filterUnauthorizedRecords(toMemoryRecords(data.records), difcPrincipalName(request), tagRegistrar)
+        val memoryRecords = toMemoryRecords(data.records)
+        // Replica fetchers (replication, alter log dirs, etc.) must receive unmodified log bytes.
+        val recordsForResponse =
+          if (fetchRequest.isFromFollower) memoryRecords
+          else filterUnauthorizedRecords(memoryRecords, difcPrincipalName(request), tagRegistrar)
         val partitionData = new FetchResponseData.PartitionData()
           .setPartitionIndex(tp.partition)
           .setErrorCode(maybeDownConvertStorageError(data.error).code)
@@ -903,7 +907,7 @@ class KafkaApis(val requestChannel: RequestChannel,
           .setLastStableOffset(lastStableOffset)
           .setLogStartOffset(data.logStartOffset)
           .setAbortedTransactions(abortedTransactions)
-          .setRecords(filteredRecords)
+          .setRecords(recordsForResponse)
           .setPreferredReadReplica(data.preferredReadReplica.orElse(FetchResponse.INVALID_PREFERRED_REPLICA_ID))
 
         if (versionId >= 16) {
