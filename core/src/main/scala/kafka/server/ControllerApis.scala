@@ -91,6 +91,9 @@ class ControllerApis(
 
   def close(): Unit = aclApis.close()
 
+  private def difcPrincipalName(request: RequestChannel.Request): String =
+    request.context.principal.getName
+
   override def handle(request: RequestChannel.Request, requestLocal: RequestLocal): Unit = {
     try {
       val handlerFuture: CompletableFuture[Unit] = request.header.apiKey match {
@@ -396,7 +399,7 @@ class ControllerApis(
 
   def handleGrantCapRequest(request: RequestChannel.Request): CompletableFuture[Unit] = {
     val req = request.body[GrantCapRequest]
-    val requesterPrincipal = request.context.principal().getName()
+    val requesterPrincipal = difcPrincipalName(request)
 
     val deadlineNs = time.nanoseconds() + (config.requestTimeoutMs.toLong * 1000000L)
 
@@ -418,7 +421,7 @@ class ControllerApis(
 
   def handlePollPrivsRequest(request: RequestChannel.Request): CompletableFuture[Unit] = {
     // PollPrivsReqRequest has no body fields, so we just grab the authenticated principal
-    val targetPrincipal = request.context.principal().getName()
+    val targetPrincipal = difcPrincipalName(request)
 
     val deadlineNs = time.nanoseconds() + (config.requestTimeoutMs.toLong * 1000000L)
 
