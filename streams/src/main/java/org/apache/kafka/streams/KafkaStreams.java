@@ -42,6 +42,7 @@ import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Timer;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.streams.difc.DifcPrivilegeRequestHandler;
 import org.apache.kafka.streams.difc.StreamsDIFC;
 import org.apache.kafka.streams.errors.InvalidStateStoreException;
 import org.apache.kafka.streams.errors.InvalidStateStorePartitionException;
@@ -195,6 +196,7 @@ public class KafkaStreams implements AutoCloseable {
 
     private final DifcStreamRequestSender difcStreamRequestSender;
     private final Thread difcStreamThread;
+    private final DifcPrivilegeRequestHandler privilegeRequestHandler;
 
     // container states
     /**
@@ -328,6 +330,10 @@ public class KafkaStreams implements AutoCloseable {
                                            final Duration timeout,
                                            final Duration pollInterval) {
         return difc().waitForRemoveCapability(capability, timeout, pollInterval);
+    }
+
+    public GrantCapResponseData requestGrantCap(final String tagName, final Capability capability) {
+        return difc().requestGrantCap(tagName, capability);
     }
 
     public GrantCapResponseData requestAddCapabilityForTag(final String tagName) {
@@ -904,6 +910,21 @@ public class KafkaStreams implements AutoCloseable {
     }
 
     /**
+     * Create a {@code KafkaStreams} instance with a handler for pending DIFC capability requests
+     * delivered on the background {@code POLL_PRIVS_REQ} polling thread.
+     *
+     * @param topology                  the topology specifying the computational logic
+     * @param props                     properties for {@link StreamsConfig}
+     * @param privilegeRequestHandler   invoked when this client (as tag owner) has a pending grant request,
+     *                                  or {@code null} to ignore
+     */
+    public KafkaStreams(final Topology topology,
+                        final Properties props,
+                        final DifcPrivilegeRequestHandler privilegeRequestHandler) {
+        this(topology, new StreamsConfig(props), privilegeRequestHandler);
+    }
+
+    /**
      * Create a {@code KafkaStreams} instance.
      * <p>
      * Note: even if you never call {@link #start()} on a {@code KafkaStreams} instance,
@@ -974,6 +995,19 @@ public class KafkaStreams implements AutoCloseable {
     }
 
     /**
+     * @see #KafkaStreams(Topology, Properties, DifcPrivilegeRequestHandler)
+     */
+    public KafkaStreams(final Topology topology,
+                        final StreamsConfig applicationConfigs,
+                        final DifcPrivilegeRequestHandler privilegeRequestHandler) {
+        this(new TopologyMetadata(topology.internalTopologyBuilder, applicationConfigs),
+                applicationConfigs,
+                applicationConfigs.getKafkaClientSupplier(),
+                Time.SYSTEM,
+                privilegeRequestHandler);
+    }
+
+    /**
      * Create a {@code KafkaStreams} instance.
      * <p>
      * Note: even if you never call {@link #start()} on a {@code KafkaStreams} instance,
@@ -1026,6 +1060,16 @@ public class KafkaStreams implements AutoCloseable {
                          final StreamsConfig applicationConfigs,
                          final KafkaClientSupplier clientSupplier,
                          final Time time) throws StreamsException {
+        this(topologyMetadata, applicationConfigs, clientSupplier, time, null);
+    }
+
+    @SuppressWarnings("this-escape")
+    private KafkaStreams(final TopologyMetadata topologyMetadata,
+                         final StreamsConfig applicationConfigs,
+                         final KafkaClientSupplier clientSupplier,
+                         final Time time,
+                         final DifcPrivilegeRequestHandler privilegeRequestHandler) throws StreamsException {
+        this.privilegeRequestHandler = privilegeRequestHandler;
         this.applicationConfigs = applicationConfigs;
         this.time = time;
 
@@ -1165,7 +1209,8 @@ public class KafkaStreams implements AutoCloseable {
 
         difcStreamRequestSender = new DifcStreamRequestSender(logContext, difcKafkaClient, time,
                             difcAdminConfig.getInt(CommonClientConfigs.REQUEST_TIMEOUT_MS_CONFIG),
-                           applicationConfigs.getLong(StreamsConfig.RETRY_BACKOFF_MS_CONFIG));
+                           applicationConfigs.getLong(StreamsConfig.RETRY_BACKOFF_MS_CONFIG),
+                           privilegeRequestHandler);
         difcStreamThread = KafkaThread.daemon(difcClientId + "-thread", difcStreamRequestSender);
     }
 

@@ -89,6 +89,11 @@ public final class StreamsDIFC
         return sync.getRemoveCapabilities();
     }
 
+    public GrantCapResponseData requestGrantCap(final String tagName, final Capability capability)
+    {
+        return sync.requestGrantCap(tagName, capability);
+    }
+
     public GrantCapResponseData requestAddCapabilityForTag(final String tagName)
     {
         return sync.requestAddCapabilityForTag(tagName);

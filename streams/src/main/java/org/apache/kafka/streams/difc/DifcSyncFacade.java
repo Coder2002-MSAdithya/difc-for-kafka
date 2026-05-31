@@ -65,6 +65,10 @@ public final class DifcSyncFacade {
         return producer.getRemoveCapabilities();
     }
 
+    public GrantCapResponseData requestGrantCap(final String tagName, final Capability capability) {
+        return producer.requestGrantCap(tagName, capability);
+    }
+
     public GrantCapResponseData requestAddCapabilityForTag(final String tagName) {
         return producer.requestAddCapabilityForTag(tagName);
     }

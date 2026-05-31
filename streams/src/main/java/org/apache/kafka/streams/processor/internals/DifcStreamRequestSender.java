@@ -12,6 +12,7 @@ import org.apache.kafka.common.requests.PollPrivsReqRequest;
 import org.apache.kafka.common.utils.LogContext;
 import org.apache.kafka.common.utils.Time;
 import org.apache.kafka.common.utils.Utils;
+import org.apache.kafka.streams.difc.DifcPrivilegeRequestHandler;
 import org.slf4j.Logger;
 
 public class DifcStreamRequestSender implements Runnable {
@@ -22,17 +23,28 @@ public class DifcStreamRequestSender implements Runnable {
     private final long retryBackoffMs;
 
     private volatile boolean running = true;
+    private final DifcPrivilegeRequestHandler privilegeRequestHandler;
 
     public DifcStreamRequestSender(final LogContext logContext,
                                    final KafkaClient client,
                                    final Time time,
                                    final int requestTimeoutMs,
                                    final long retryBackoffMs) {
+        this(logContext, client, time, requestTimeoutMs, retryBackoffMs, null);
+    }
+
+    public DifcStreamRequestSender(final LogContext logContext,
+                                   final KafkaClient client,
+                                   final Time time,
+                                   final int requestTimeoutMs,
+                                   final long retryBackoffMs,
+                                   final DifcPrivilegeRequestHandler privilegeRequestHandler) {
         this.log = logContext.logger(DifcStreamRequestSender.class);
         this.client = client;
         this.time = time;
         this.requestTimeoutMs = requestTimeoutMs;
         this.retryBackoffMs = retryBackoffMs;
+        this.privilegeRequestHandler = privilegeRequestHandler;
     }
 
     @Override
@@ -104,6 +116,14 @@ public class DifcStreamRequestSender implements Runnable {
         if (data.capability() >= 0 && data.tagName() != null && !data.tagName().isEmpty()) {
             log.info("POLL_PRIVS_REQ pending request: tag={}, capability={}, requester={}",
                     data.tagName(), data.capability(), data.requesterClientId());
+            if (privilegeRequestHandler != null) {
+                try {
+                    privilegeRequestHandler.onPrivilegeRequest(data);
+                } catch (final Exception e) {
+                    log.warn("DIFC privilege request handler failed for tag={}, requester={}",
+                            data.tagName(), data.requesterClientId(), e);
+                }
+            }
         } else if (log.isTraceEnabled()) {
             log.trace("POLL_PRIVS_REQ queue empty (capability={})", data.capability());
         }
