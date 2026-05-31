@@ -442,14 +442,14 @@ public final class QuorumController implements Controller {
     public CompletableFuture<AddTagResponseData> addDifcTagToLabel(ControllerRequestContext context, String tagName)
     {
         String principalName = context.principal().getName();
-        return appendWriteEvent("addDifcTagToLabel", context.deadlineNs(), () -> difcControlManager.addDifcTag(tagName, principalName));
+        return appendWriteEvent("addDifcTagToLabel", context.deadlineNs(), () -> difcControlManager.addDifcTag(principalName, tagName));
     }
 
     @Override
     public CompletableFuture<RemoveTagResponseData> removeDifcTagFromLabel(ControllerRequestContext context, String tagName)
     {
         String principalName = context.principal().getName();
-        return appendWriteEvent("removeDifcTagFromLabel", context.deadlineNs(), () -> difcControlManager.removeDifcTag(tagName, principalName));
+        return appendWriteEvent("removeDifcTagFromLabel", context.deadlineNs(), () -> difcControlManager.removeDifcTag(principalName, tagName));
     }
 
     @Override
