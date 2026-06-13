@@ -9,6 +9,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.Set;
+
 class RelationalAlgebraExtractorTest {
 
   private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -16,6 +18,8 @@ class RelationalAlgebraExtractorTest {
   @BeforeEach
   void resetClientCapture() {
     AppClientPolicyTracker.clearStateForTests();
+    EgressProjectionRegistry.clearForTests();
+    TopicFieldRegistry.clearForTests();
   }
 
   @Test
@@ -124,6 +128,120 @@ class RelationalAlgebraExtractorTest {
     final AppProcessingPolicy.ProcessingPathAnalysis ordersPath =
         RelationalAlgebraExtractor.pathAnalysisFor(policy, "orders", "orders");
     assertTrue(ordersPath != null && ordersPath.isJoined());
+  }
+
+  @Test
+  void egressProjectionRegistrySanitizesPaymentsPath() throws Exception {
+    EgressProjectionRegistry.register("payments", Set.of("id", "status", "source"));
+    final AppProcessingPolicy policy =
+        ProcessingPolicyEnricher.enrich(
+            readPolicy(
+                """
+                {
+                  "version": 2,
+                  "sources": ["orders"],
+                  "egressPaths": [
+                    {
+                      "topic": "payments",
+                      "ingressTopics": ["orders"],
+                      "operators": ["filter", "mapValues", "declassifyTags", "to"]
+                    }
+                  ],
+                  "graph": {"nodes": [], "edges": []}
+                }
+                """));
+    final AppProcessingPolicy.ProcessingPathAnalysis path =
+        RelationalAlgebraExtractor.pathAnalysisFor(policy, "orders", "payments");
+    assertTrue(path != null && path.getExpressionTree() != null);
+    assertTrue(path.getOutputFields().contains("id"));
+    assertFalse(path.getRetainedFields().contains("customerId"));
+    assertTrue(path.getDroppedSensitiveFields().contains("customerId"));
+  }
+
+  @Test
+  void inventoryProcessAfterJoinSanitizesValidationFields() throws Exception {
+    EgressProjectionRegistry.register(
+        "order-validations", Set.of("orderId", "checkType", "validationResult"));
+    final AppProcessingPolicy policy =
+        ProcessingPolicyEnricher.enrich(
+            readPolicy(
+                """
+                {
+                  "version": 2,
+                  "principal": "inventory-svc",
+                  "sources": ["orders", "warehouse-inventory"],
+                  "egressPaths": [
+                    {
+                      "topic": "order-validations",
+                      "ingressTopics": ["orders"],
+                      "operators": ["selectKey", "filter", "join", "process"]
+                    }
+                  ],
+                  "graph": {
+                    "nodes": [
+                      {"id":"topic_orders","kind":"topic","topic":"orders"},
+                      {"id":"topic_inventory","kind":"topic","topic":"warehouse-inventory"},
+                      {"id":"op_join","kind":"operator","label":"join()"},
+                      {"id":"op_process","kind":"operator","label":"process()"},
+                      {"id":"topic_validations","kind":"topic","topic":"order-validations"}
+                    ],
+                    "edges": [
+                      {"from":"topic_orders","to":"op_join","label":"left"},
+                      {"from":"topic_inventory","to":"op_join","label":"right"},
+                      {"from":"op_join","to":"op_process","label":"input"},
+                      {"from":"op_process","to":"topic_validations","label":"writes"}
+                    ]
+                  }
+                }
+                """));
+    final AppProcessingPolicy.ProcessingPathAnalysis path =
+        RelationalAlgebraExtractor.pathAnalysisFor(policy, "orders", "order-validations");
+    assertTrue(path != null && path.getExpressionTree() != null);
+    assertTrue(path.getAlgebraExpression().contains("process") || path.getAlgebraExpression().contains("π"));
+    assertFalse(path.getRetainedFields().contains("customerId"));
+    assertTrue(path.getDroppedSensitiveFields().contains("customerId"));
+  }
+
+  @Test
+  void fallsBackToEgressMetadataWhenGraphMissingIngressScan() throws Exception {
+    final AppProcessingPolicy policy =
+        ProcessingPolicyEnricher.enrich(
+            readPolicy(
+                """
+                {
+                  "version": 2,
+                  "principal": "inventory-svc",
+                  "sources": ["orders", "warehouse-inventory"],
+                  "egressPaths": [
+                    {
+                      "topic": "order-validations",
+                      "ingressTopics": ["orders", "warehouse-inventory"],
+                      "operators": ["selectKey", "filter", "join", "process"]
+                    }
+                  ],
+                  "graph": {
+                    "nodes": [
+                      {"id":"topic_inventory","kind":"topic","topic":"warehouse-inventory"},
+                      {"id":"op_join","kind":"operator","label":"join()"},
+                      {"id":"op_process","kind":"operator","label":"process()"},
+                      {"id":"topic_validations","kind":"topic","topic":"order-validations"}
+                    ],
+                    "edges": [
+                      {"from":"topic_inventory","to":"op_join","label":"right"},
+                      {"from":"op_join","to":"op_process","label":"input"},
+                      {"from":"op_process","to":"topic_validations","label":"writes"}
+                    ]
+                  }
+                }
+                """));
+    final AppProcessingPolicy.ProcessingPathAnalysis path =
+        RelationalAlgebraExtractor.pathAnalysisFor(policy, "orders", "order-validations");
+    assertTrue(path != null && path.getExpressionTree() != null);
+    assertTrue(RelationalAlgebraTreeSupport.containsScan(path.getExpressionTree(), "orders"));
+    assertTrue(RelationalAlgebraTreeSupport.containsScan(path.getExpressionTree(), "warehouse-inventory"));
+    assertTrue(path.getAlgebraExpression().contains("process") || path.getAlgebraExpression().contains("π"));
+    assertFalse(path.getRetainedFields().contains("customerId"));
+    assertTrue(path.getDroppedSensitiveFields().contains("customerId"));
   }
 
   private static AppProcessingPolicy readPolicy(final String json) throws Exception {

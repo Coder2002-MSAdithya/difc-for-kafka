@@ -24,7 +24,9 @@ public final class TopicSchemaCatalog {
           "orders-enriched",
           Set.of("id", "customerId", "state", "product", "quantity", "price"),
           "payments",
-          Set.of("id", "amount"),
+          Set.of("id", "status", "source"),
+          "stock",
+          Set.of("id", "status", "source"),
           "customers",
           Set.of("id", "name", "phone"));
 

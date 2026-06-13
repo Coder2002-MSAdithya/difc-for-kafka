@@ -119,21 +119,69 @@ public final class RelationalAlgebraTreeBuilder {
       final List<String> ingressTopics,
       final String sinkTopic,
       final List<String> operators) {
+    final List<String> normalized = new ArrayList<>();
+    for (final String raw : operators) {
+      normalized.add(RelationalAlgebraTreeSupport.normalizeOp(raw + "()"));
+    }
+    final int joinIdx = normalized.indexOf("join");
+    final List<String> preJoinOps =
+        joinIdx > 0 ? normalized.subList(0, joinIdx) : List.of();
+    final List<String> postJoinOps =
+        joinIdx >= 0 && joinIdx + 1 < normalized.size()
+            ? normalized.subList(joinIdx + 1, normalized.size())
+            : List.of();
+
     final AppProcessingPolicy.RelationalAlgebraExpressionNode join =
         RelationalAlgebraTreeSupport.operatorNode("join", "⋈", "stream–table join");
-    for (final String ingress : ingressTopics) {
-      final AppProcessingPolicy.RelationalAlgebraExpressionNode branch =
-          ingress.equals(sinkTopic)
-              ? RelationalAlgebraTreeSupport.scanNode(ingress)
-              : buildOperatorChain(ingress, sinkTopic, operators);
+    for (int i = 0; i < ingressTopics.size(); i++) {
+      final String ingress = ingressTopics.get(i);
+      final AppProcessingPolicy.RelationalAlgebraExpressionNode branch;
+      if (i == 0 && !preJoinOps.isEmpty()) {
+        branch = buildOperatorChain(ingress, sinkTopic, stripOpSuffix(preJoinOps));
+      } else {
+        branch = RelationalAlgebraTreeSupport.scanNode(ingress);
+      }
       join.getChildren().add(branch);
     }
     RelationalAlgebraTreeSupport.annotateOutputFields(join, sinkTopic);
+
+    AppProcessingPolicy.RelationalAlgebraExpressionNode body = join;
+    body = wrapPostJoinOperators(body, sinkTopic, postJoinOps);
+
     final AppProcessingPolicy.RelationalAlgebraExpressionNode sink =
         RelationalAlgebraTreeSupport.sinkNode(sinkTopic);
-    sink.getChildren().add(join);
+    sink.getChildren().add(body);
     RelationalAlgebraTreeSupport.annotateOutputFields(sink, sinkTopic);
     return sink;
+  }
+
+  private static List<String> stripOpSuffix(final List<String> ops) {
+    final List<String> stripped = new ArrayList<>();
+    for (final String op : ops) {
+      stripped.add(op.endsWith("()") ? op.substring(0, op.length() - 2) : op);
+    }
+    return stripped;
+  }
+
+  private static AppProcessingPolicy.RelationalAlgebraExpressionNode wrapPostJoinOperators(
+      AppProcessingPolicy.RelationalAlgebraExpressionNode body,
+      final String sinkTopic,
+      final List<String> postJoinOps) {
+    for (int i = postJoinOps.size() - 1; i >= 0; i--) {
+      final String op = postJoinOps.get(i);
+      if (RelationalAlgebraTreeSupport.isPassthroughOp(op)) {
+        continue;
+      }
+      final AppProcessingPolicy.RelationalAlgebraExpressionNode unary =
+          RelationalAlgebraTreeSupport.operatorNode(
+              op,
+              RelationalAlgebraTreeSupport.algebraSymbol(op),
+              RelationalAlgebraTreeSupport.operatorDescription(op, sinkTopic));
+      unary.getChildren().add(body);
+      RelationalAlgebraTreeSupport.annotateOutputFields(unary, sinkTopic);
+      body = unary;
+    }
+    return body;
   }
 
   public static Set<String> scanTopics(

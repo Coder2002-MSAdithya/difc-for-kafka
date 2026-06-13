@@ -241,6 +241,7 @@ public class PolicyAgent
                             b.visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.FilterAdvice.class).on(named("filter")))
                                     .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.MapAdvice.class).on(named("map")))
                                     .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.MapValuesAdvice.class).on(named("mapValues")))
+                                    .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.ProcessAdvice.class).on(named("process")))
                                     .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.FlatMapAdvice.class).on(named("flatMap")))
                                     .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.FlatMapValuesAdvice.class).on(named("flatMapValues")))
                                     .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.SelectKeyAdvice.class).on(named("selectKey")))

@@ -1,0 +1,32 @@
+digraph KafkaDsl {
+  rankdir=LR;
+
+  subgraph cluster_legend {
+    label="Legend";
+    keyTopic [label="Kafka Topic", shape="cylinder", style="filled", fillcolor="#D6EAF8"];
+    keyStream [label="Kafka Stream", shape="ellipse", style="filled", fillcolor="#FCF3CF"];
+    keyOperator [label="DSL Operator", shape="box", style="filled", fillcolor="#E8F0FE"];
+    keyBranch [label="Branch Operator", shape="diamond", style="filled", fillcolor="#E8F0FE"];
+    keyJoin [label="Join/Merge Operator", shape="hexagon", style="filled", fillcolor="#E8F0FE"];
+    keyStore [label="State Store", shape="folder", style="filled", fillcolor="#F9E79F"];
+  }
+
+  "stream_1" [label="KStream", class="stream", shape="ellipse", style="filled,rounded", fillcolor="#FCF3CF"];
+  "topic_input-topic" [label="topic:input-topic", class="topic", shape="cylinder", style="filled,rounded", fillcolor="#D6EAF8"];
+  "stream_2" [label="KStream", class="stream", shape="ellipse", style="filled,rounded", fillcolor="#FCF3CF"];
+  "op_3" [label="mapValues((arg0, arg1) -\> arg1.length() \<= 3)", class="operator", shape="box", style="filled,rounded", fillcolor="#E8F0FE"];
+  "stream_4" [label="KStream", class="stream", shape="ellipse", style="filled,rounded", fillcolor="#FCF3CF"];
+  "op_5" [label="filter((arg0, arg1) -\> arg1.length() \<= 3)", class="operator", shape="box", style="filled,rounded", fillcolor="#E8F0FE"];
+  "op_6" [label="to(output-topic)", class="operator", shape="box", style="filled,rounded", fillcolor="#E8F0FE"];
+  "topic_output-topic" [label="topic:output-topic", class="topic", shape="cylinder", style="filled,rounded", fillcolor="#D6EAF8"];
+
+  "topic_input-topic" -> "stream_1" [label="source"];
+  "stream_1" -> "op_3" [label="input"];
+  "op_3" -> "stream_2" [label="output"];
+  "stream_2" -> "op_5" [label="input"];
+  "op_5" -> "stream_4" [label="output"];
+  "stream_4" -> "op_6" [label="input"];
+  "op_6" -> "topic_output-topic" [label="writes"];
+
+  graph [label="Generated at 2026-06-07T06:47:55.686175993Z"];
+}

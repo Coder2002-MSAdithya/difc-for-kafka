@@ -31,7 +31,19 @@ public final class RelationalAlgebraExtractor {
           RelationalAlgebraTreeBuilder.buildForEgress(policy.getGraph(), sinkTopic);
       AppProcessingPolicy.RelationalAlgebraExpressionNode resolved =
           tree != null ? tree : RelationalAlgebraTreeBuilder.buildFromEgressMetadata(policy, egress);
-      if (resolved != null && RelationalAlgebraTreeBuilder.scanTopics(resolved).isEmpty()) {
+      final Set<String> expectedIngress =
+          ProcessingPolicyGraphHelper.ingressTopicsForEgressPath(policy, egress);
+      final Set<String> scanTopics =
+          resolved == null ? Set.of() : RelationalAlgebraTreeBuilder.scanTopics(resolved);
+      if (resolved != null
+          && !expectedIngress.isEmpty()
+          && !scanTopics.containsAll(expectedIngress)) {
+        final AppProcessingPolicy.RelationalAlgebraExpressionNode metadataTree =
+            RelationalAlgebraTreeBuilder.buildFromEgressMetadata(policy, egress);
+        if (metadataTree != null) {
+          resolved = metadataTree;
+        }
+      } else if (resolved != null && scanTopics.isEmpty()) {
         final AppProcessingPolicy.RelationalAlgebraExpressionNode metadataTree =
             RelationalAlgebraTreeBuilder.buildFromEgressMetadata(policy, egress);
         if (metadataTree != null) {
@@ -75,7 +87,7 @@ public final class RelationalAlgebraExtractor {
     final Set<String> allRetained = new LinkedHashSet<>();
     final Set<String> allDroppedSensitive = new LinkedHashSet<>();
     for (final String ingress : ingressTopics) {
-      final Set<String> inputFields = TopicSchemaCatalog.valueFieldsForTopic(ingress);
+      final Set<String> inputFields = TopicSchemaResolver.valueFieldsForTopic(ingress);
       allInputFields.addAll(inputFields);
       final Set<String> dropped = new LinkedHashSet<>(inputFields);
       dropped.removeAll(outputFields);
@@ -84,7 +96,7 @@ public final class RelationalAlgebraExtractor {
       retained.retainAll(outputFields);
       allRetained.addAll(retained);
       final Set<String> droppedSensitive = new LinkedHashSet<>(dropped);
-      droppedSensitive.retainAll(TopicSchemaCatalog.sensitiveOrderFields());
+      droppedSensitive.retainAll(TopicSchemaResolver.sensitiveOrderFields());
       allDroppedSensitive.addAll(droppedSensitive);
     }
     path.setInputFields(new ArrayList<>(allInputFields));
@@ -160,7 +172,7 @@ public final class RelationalAlgebraExtractor {
     if (scan == null) {
       return null;
     }
-    final Set<String> scanFields = TopicSchemaCatalog.copyFields(TopicSchemaCatalog.valueFieldsForTopic(scanTopic));
+    final Set<String> scanFields = TopicSchemaCatalog.copyFields(TopicSchemaResolver.valueFieldsForTopic(scanTopic));
     final Set<String> finalFields =
         RelationalAlgebraTreeSupport.evaluateOutputFields(path.getExpressionTree(), sinkTopic);
     final Set<String> retained = new LinkedHashSet<>(scanFields);

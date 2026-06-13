@@ -131,6 +131,37 @@ public class KafkaEntrypointAdvice
             if (!emit) return;
             StreamsDslAttestation.attest("mapValues", mapper);
             DslGraphTracker.recordUnary("mapValues", stream, returned, null, mapper, false, false);
+            DslProcessingPolicyTracker.recordMapValuesProjection(stream, returned, mapper);
+        }
+    }
+
+    public static class ProcessAdvice
+    {
+        @Advice.OnMethodEnter
+        public static boolean enter(@Advice.Argument(0) Object processorSupplier)
+        {
+            if (!org.apache.kafka.security.agent.policy.ProcessorOutputAnalyzer.isUserProvidedProcessorSupplier(
+                    processorSupplier))
+            {
+                return false;
+            }
+            return StreamsDslAttestation.shouldEmitUserDsl("process");
+        }
+
+        @Advice.OnMethodExit
+        public static void exit(
+                @Advice.Enter boolean emit,
+                @Advice.This Object stream,
+                @Advice.Argument(0) Object processorSupplier,
+                @Advice.Return Object returned)
+        {
+            if (!emit)
+            {
+                return;
+            }
+            StreamsDslAttestation.attest("process", processorSupplier);
+            DslGraphTracker.recordUnary("process", stream, returned, null, processorSupplier, false, false);
+            DslProcessingPolicyTracker.recordProcessProjection(stream, returned, processorSupplier);
         }
     }
 
@@ -596,6 +627,7 @@ public class KafkaEntrypointAdvice
         public static void enter(@Advice.Argument(0) Object record)
         {
             AppClientPolicyTracker.recordProducerSend(record);
+            org.apache.kafka.security.agent.policy.EgressFieldObserver.observeProducerRecord(record);
         }
     }
 

@@ -192,6 +192,57 @@ public final class DslProcessingPolicyTracker
         }
     }
 
+    public static void recordMapValuesProjection(
+            final Object upstream,
+            final Object returned,
+            final Object mapper)
+    {
+        synchronized (LOCK)
+        {
+            final Set<String> projected =
+                    org.apache.kafka.security.agent.policy.LambdaProjectionAnalyzer.analyzeMapper(mapper);
+            if (projected.isEmpty())
+            {
+                return;
+            }
+            applyProjection(upstream, returned, projected, "mapValues");
+        }
+    }
+
+    public static void recordProcessProjection(
+            final Object upstream,
+            final Object returned,
+            final Object processorSupplier)
+    {
+        synchronized (LOCK)
+        {
+            final Set<String> projected =
+                    org.apache.kafka.security.agent.policy.ProcessorOutputAnalyzer.analyzeProcessorSupplier(
+                            processorSupplier);
+            if (projected.isEmpty())
+            {
+                return;
+            }
+            applyProjection(upstream, returned, projected, "process");
+        }
+    }
+
+    private static void applyProjection(
+            final Object upstream,
+            final Object returned,
+            final Set<String> projected,
+            final String operator)
+    {
+        final FlowState out = stateFor(returned, true);
+        if (upstream != null)
+        {
+            out.inheritFrom(stateFor(upstream, false));
+        }
+        out.projectedFields.clear();
+        out.projectedFields.addAll(projected);
+        System.out.println("[POLICY][ATTEST] " + operator + ".projection=" + projected);
+    }
+
     public static void recordSinkPolicy(final Object stream, final Object topic)
     {
         synchronized (LOCK)
@@ -202,6 +253,11 @@ public final class DslProcessingPolicyTracker
                 return;
             }
             final FlowState state = stateFor(stream, false);
+            if (!state.projectedFields.isEmpty())
+            {
+                org.apache.kafka.security.agent.policy.EgressProjectionRegistry.register(
+                        topicName, new LinkedHashSet<>(state.projectedFields));
+            }
             SINKS.add(new SinkBinding(
                     topicName,
                     new LinkedHashSet<>(state.declassifyTags),
@@ -567,6 +623,7 @@ public final class DslProcessingPolicyTracker
         private final LinkedHashSet<String> operators = new LinkedHashSet<>();
         private final LinkedHashSet<String> declassifyTags = new LinkedHashSet<>();
         private final LinkedHashSet<String> addTags = new LinkedHashSet<>();
+        private final LinkedHashSet<String> projectedFields = new LinkedHashSet<>();
 
         private void inheritFrom(final FlowState other)
         {
@@ -574,6 +631,11 @@ public final class DslProcessingPolicyTracker
             operators.addAll(other.operators);
             declassifyTags.addAll(other.declassifyTags);
             addTags.addAll(other.addTags);
+            if (!other.projectedFields.isEmpty())
+            {
+                projectedFields.clear();
+                projectedFields.addAll(other.projectedFields);
+            }
         }
     }
 

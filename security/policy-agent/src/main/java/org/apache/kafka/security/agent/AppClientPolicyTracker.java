@@ -343,10 +343,14 @@ public final class AppClientPolicyTracker {
             final Class<?> bootstrap =
                     Class.forName("org.apache.kafka.security.agent.bootstrap.internal.SocketPolicyBootstrap");
             final Method method = bootstrap.getMethod("insideStreamsInternal");
-            return Boolean.TRUE.equals(method.invoke(null));
-        } catch (final ReflectiveOperationException e) {
-            return false;
+            if (Boolean.TRUE.equals(method.invoke(null))) {
+                return true;
+            }
+        } catch (final ReflectiveOperationException ignored) {
+            // fall through to thread-name heuristic
         }
+        final String threadName = Thread.currentThread().getName();
+        return threadName.contains("StreamThread");
     }
 
     private static String topicName(final Object record) {

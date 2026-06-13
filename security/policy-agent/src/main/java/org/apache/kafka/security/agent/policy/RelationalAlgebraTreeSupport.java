@@ -17,7 +17,7 @@ public final class RelationalAlgebraTreeSupport {
     node.setAlgebraSymbol("Scan");
     node.setTopic(topic);
     node.setDescription("Scan(" + topic + ")");
-    node.setOutputFields(new ArrayList<>(TopicSchemaCatalog.valueFieldsForTopic(topic)));
+    node.setOutputFields(new ArrayList<>(TopicSchemaResolver.valueFieldsForTopic(topic)));
     return node;
   }
 
@@ -58,7 +58,7 @@ public final class RelationalAlgebraTreeSupport {
       return new LinkedHashSet<>(node.getOutputFields());
     }
     return switch (node.getKind()) {
-      case "scan" -> TopicSchemaCatalog.copyFields(TopicSchemaCatalog.valueFieldsForTopic(node.getTopic()));
+      case "scan" -> TopicSchemaCatalog.copyFields(TopicSchemaResolver.valueFieldsForTopic(node.getTopic()));
       case "sink" -> evaluateChildOutput(node, sinkTopic);
       case "operator" -> evaluateOperatorOutput(node, sinkTopic);
       default -> Set.of();
@@ -69,7 +69,7 @@ public final class RelationalAlgebraTreeSupport {
       final AppProcessingPolicy.RelationalAlgebraExpressionNode node,
       final String sinkTopic) {
     if (node.getChildren().isEmpty()) {
-      return TopicSchemaCatalog.copyFields(TopicSchemaCatalog.valueFieldsForTopic(sinkTopic));
+      return TopicSchemaCatalog.copyFields(TopicSchemaResolver.valueFieldsForTopic(sinkTopic));
     }
     return evaluateOutputFields(node.getChildren().get(0), sinkTopic);
   }
@@ -80,7 +80,7 @@ public final class RelationalAlgebraTreeSupport {
     final String op = node.getTopic() == null ? "" : node.getTopic();
     if (isJoinOp(op)) {
       if ("orders".equals(sinkTopic)) {
-        return TopicSchemaCatalog.copyFields(TopicSchemaCatalog.valueFieldsForTopic("orders"));
+        return TopicSchemaCatalog.copyFields(TopicSchemaResolver.valueFieldsForTopic("orders"));
       }
       final Set<String> merged = new LinkedHashSet<>();
       for (final AppProcessingPolicy.RelationalAlgebraExpressionNode child : node.getChildren()) {
@@ -97,8 +97,16 @@ public final class RelationalAlgebraTreeSupport {
     }
     if (Set.of("mapvalues", "map", "flatmapvalues", "flatmap", "transform", "transformvalues", "process")
         .contains(op)) {
-      if ("order-validations".equals(sinkTopic)) {
-        return TopicSchemaCatalog.copyFields(TopicSchemaCatalog.valueFieldsForTopic("order-validations"));
+      final Set<String> egressProjection = EgressProjectionRegistry.projectionForEgress(sinkTopic);
+      if (!egressProjection.isEmpty()) {
+        return new LinkedHashSet<>(egressProjection);
+      }
+      final Set<String> observedEgress = TopicFieldRegistry.fieldsForTopic(sinkTopic);
+      if (TopicSchemaResolver.isUsefulFieldObservation(observedEgress)) {
+        return new LinkedHashSet<>(observedEgress);
+      }
+      if (TopicSchemaCatalog.isKnownTopic(sinkTopic)) {
+        return TopicSchemaCatalog.copyFields(TopicSchemaResolver.valueFieldsForTopic(sinkTopic));
       }
     }
     if (Set.of("aggregate", "reduce", "count").contains(op)) {
