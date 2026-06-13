@@ -248,21 +248,7 @@ public class SocketAdvice
 
                     System.out.println(desc);
 
-                    String canonicalTopology =
-                            canonicalizeTopology(
-                                    String.valueOf(desc));
-
-                    String topologyDigest =
-                            sha256Base64(
-                                    canonicalTopology);
-
-                    System.out.println(
-                            "[POLICY][ATTEST] streams.topology.canonical="
-                                    + canonicalTopology);
-
-                    System.out.println(
-                            "[POLICY][ATTEST] streams.topology.sha256="
-                                    + topologyDigest);
+                    DslProcessingPolicyTracker.recordTopologyDescription(desc);
                 }
                 catch (NoSuchMethodException ignored)
                 {
@@ -275,43 +261,6 @@ public class SocketAdvice
                         "[policy-agent] Failed to print topology: "
                                 + t.getMessage());
             }
-        }
-    }
-
-    private static String canonicalizeTopology(
-            String raw)
-    {
-        return Arrays.stream(
-                        raw.split("\\R"))
-                .map(String::trim)
-                .filter(line -> !line.isEmpty())
-                .reduce((a, b) -> a + "|" + b)
-                .orElse("");
-    }
-
-    public static String sha256Base64(
-            String input)
-    {
-        try
-        {
-            MessageDigest digest =
-                    MessageDigest.getInstance(
-                            "SHA-256");
-
-            byte[] hash =
-                    digest.digest(
-                            input.getBytes(
-                                    StandardCharsets.UTF_8));
-
-            return java.util.Base64
-                    .getEncoder()
-                    .encodeToString(hash);
-        }
-        catch (Exception e)
-        {
-            throw new RuntimeException(
-                    "Unable to hash topology for attestation",
-                    e);
         }
     }
 

@@ -33,6 +33,31 @@ public class KafkaEntrypointAdvice
         }
     }
 
+    public static class TableAdvice
+    {
+        @Advice.OnMethodEnter
+        public static Object[] enter(@Advice.Argument(0) Object topics)
+        {
+            if (!StreamsDslAttestation.enterOperator("table"))
+            {
+                return new Object[]{false, topics};
+            }
+
+            System.out.println("[POLICY][ATTEST] topology.statement=table(" + normalizeTopics(topics) + ")");
+            return new Object[]{true, topics};
+        }
+
+        @Advice.OnMethodExit(onThrowable = Throwable.class)
+        public static void exit(@Advice.Enter Object[] state, @Advice.Return Object returned)
+        {
+            if ((boolean) state[0])
+            {
+                StreamsDslAttestation.exitOperator("table");
+                DslGraphTracker.recordTableSource(returned, state[1]);
+            }
+        }
+    }
+
     public static class FromAdvice
     {
         @Advice.OnMethodEnter
@@ -471,6 +496,7 @@ public class KafkaEntrypointAdvice
         public static void enter(@Advice.Argument(0) String topic)
         {
             System.out.println("[POLICY][ATTEST] internal.topic=" + topic);
+            DslGraphTracker.recordInternalTopic(topic);
         }
     }
 
@@ -480,6 +506,7 @@ public class KafkaEntrypointAdvice
         public static void enter(@Advice.Argument(0) Object store)
         {
             System.out.println("[POLICY][ATTEST] state.store=" + store);
+            DslGraphTracker.recordStateStore(store);
         }
     }
 
@@ -523,13 +550,70 @@ public class KafkaEntrypointAdvice
                 return;
             }
 
-            if (topic != null && topic.toString().contains("StaticTopicNameExtractor"))
+            System.out.println("[POLICY][ATTEST] topology.statement=to(" + topic + ")");
+            DslGraphTracker.recordUnary("to", stream, null, topic, null, false, true);
+            DslProcessingPolicyTracker.recordSinkPolicy(stream, topic);
+        }
+    }
+
+    public static class AddTagsAdvice
+    {
+        @Advice.OnMethodExit
+        public static void exit(
+                @Advice.This Object stream,
+                @Advice.Argument(0) Object tags,
+                @Advice.Return Object returned)
+        {
+            if (!StreamsDslAttestation.shouldEmitUserDsl("addTags"))
             {
                 return;
             }
+            System.out.println("[POLICY][ATTEST] topology.statement=addTags(" + tags + ")");
+            DslProcessingPolicyTracker.recordDifcAddTags(stream, tags, returned);
+        }
+    }
 
-            System.out.println("[POLICY][ATTEST] topology.statement=to(" + topic + ")");
-            DslGraphTracker.recordUnary("to", stream, null, topic, null, false, true);
+    public static class DeclassifyTagsAdvice
+    {
+        @Advice.OnMethodExit
+        public static void exit(
+                @Advice.This Object stream,
+                @Advice.Argument(0) Object tags,
+                @Advice.Return Object returned)
+        {
+            if (!StreamsDslAttestation.shouldEmitUserDsl("declassifyTags"))
+            {
+                return;
+            }
+            System.out.println("[POLICY][ATTEST] topology.statement=declassifyTags(" + tags + ")");
+            DslProcessingPolicyTracker.recordDifcDeclassifyTags(stream, tags, returned);
+        }
+    }
+
+    public static class ProducerSendAdvice
+    {
+        @Advice.OnMethodEnter
+        public static void enter(@Advice.Argument(0) Object record)
+        {
+            AppClientPolicyTracker.recordProducerSend(record);
+        }
+    }
+
+    public static class ConsumerSubscribeAdvice
+    {
+        @Advice.OnMethodEnter
+        public static void enter(@Advice.Argument(0) Object topics)
+        {
+            AppClientPolicyTracker.recordConsumerSubscribe(topics);
+        }
+    }
+
+    public static class ConsumerAssignAdvice
+    {
+        @Advice.OnMethodEnter
+        public static void enter(@Advice.Argument(0) Object partitions)
+        {
+            AppClientPolicyTracker.recordConsumerAssign(partitions);
         }
     }
 }

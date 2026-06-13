@@ -1,16 +1,12 @@
 package org.apache.kafka.security.agent;
 
-import java.io.InputStream;
-import java.net.URL;
-import java.nio.file.Files;
+import org.apache.kafka.security.agent.bootstrap.internal.PolicyCertificateTrust;
+
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.security.CodeSigner;
 import java.security.CodeSource;
 import java.security.cert.CertPath;
 import java.security.cert.Certificate;
-import java.security.cert.CertificateFactory;
-import java.security.cert.X509Certificate;
 import java.util.Enumeration;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
@@ -23,17 +19,7 @@ public final class TrustedJarVerifier
 
     }
 
-    public static X509Certificate loadTrustedCertificate() throws Exception
-    {
-
-        try (InputStream in = TrustedJarVerifier.class.getResourceAsStream("/kafka-signing-cert.pem"))
-        {
-            CertificateFactory cf = CertificateFactory.getInstance("X.509");
-            return (X509Certificate) cf.generateCertificate(in);
-        }
-    }
-
-    public static void verifyClass(Class<?> cls) throws Exception
+    public static void verifyClass(final Class<?> cls) throws Exception
     {
         CodeSource source = cls.getProtectionDomain().getCodeSource();
 
@@ -42,12 +28,14 @@ public final class TrustedJarVerifier
             throw new SecurityException("No code source for class: " + cls.getName());
         }
 
-        URL location = source.getLocation();
-        Path jar = Paths.get(location.toURI());
-        verifyJar(jar, loadTrustedCertificate());
+        final Certificate[] chain = source.getCertificates();
+        if (!PolicyCertificateTrust.isTrustedSignerChain(chain))
+        {
+            throw new SecurityException("Untrusted signer chain for class: " + cls.getName());
+        }
     }
 
-    public static void verifyJar(Path jarPath, X509Certificate trusted) throws Exception
+    public static void verifyJar(final Path jarPath) throws Exception
     {
         try (JarFile jar = new JarFile(
                 jarPath.toFile(),
@@ -67,7 +55,7 @@ public final class TrustedJarVerifier
                     continue;
                 }
 
-                try (InputStream in = jar.getInputStream(entry))
+                try (java.io.InputStream in = jar.getInputStream(entry))
                 {
                     while(in.read(buffer) != -1)
                     {
@@ -88,16 +76,12 @@ public final class TrustedJarVerifier
                 {
 
                     CertPath path = signer.getSignerCertPath();
+                    Certificate[] chain = path.getCertificates().toArray(new Certificate[0]);
 
-                    for (Certificate cert : path.getCertificates())
+                    if (PolicyCertificateTrust.isTrustedSignerChain(chain))
                     {
-
-                        X509Certificate x509 = (X509Certificate) cert;
-
-                        if(x509.equals(trusted))
-                        {
-                            trustedSigner = true;
-                        }
+                        trustedSigner = true;
+                        break;
                     }
                 }
 

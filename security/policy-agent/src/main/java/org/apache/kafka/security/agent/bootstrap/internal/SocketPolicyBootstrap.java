@@ -3,14 +3,9 @@ package org.apache.kafka.security.agent.bootstrap.internal;
 import java.net.InetSocketAddress;
 import java.security.CodeSource;
 import java.security.cert.Certificate;
-import java.security.cert.CertificateFactory;
-import java.security.cert.X509Certificate;
-import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashSet;
 import java.util.Set;
 import java.lang.StackWalker;
 
@@ -39,14 +34,13 @@ public final class SocketPolicyBootstrap {
 
     private static volatile KafkaClientType activeClientType = KafkaClientType.NONE;
 
+    private static final Set<KafkaClientType> REGISTERED_CLIENT_TYPES = new LinkedHashSet<>();
+
     private static final Set<String> ALLOWED_PREFIX =
             Set.of(
                     "org.apache.kafka.clients",
                     "org.apache.kafka.streams"
             );
-
-    private static final String TRUSTED_CERT_PATH = System.getProperty("policy.agent.trusted.cert.path", "kafka-signing-cert.pem").trim();
-    private static final X509Certificate TRUSTED_CERT = loadTrustedCertificate();
 
     private SocketPolicyBootstrap() {}
 
@@ -119,6 +113,7 @@ public final class SocketPolicyBootstrap {
             {
                 logicalClient = client;
                 activeClientType = type;
+                REGISTERED_CLIENT_TYPES.add(type);
                 System.out.println("[policy-agent] Detected Kafka client: " + typeStr);
                 System.out.println("[POLICY] Active Kafka Client = " + activeClientType);
                 return;
@@ -130,8 +125,33 @@ public final class SocketPolicyBootstrap {
                 return;
             }
 
-            failStop("[POLICY] Multiple Kafka client instances/types detected. " + "Existing=" + activeClientType + ", New=" + type);
+            if (isAllowedAdditionalClientType(type))
+            {
+                REGISTERED_CLIENT_TYPES.add(type);
+                System.out.println("[policy-agent] Additional Kafka client allowed: " + typeStr);
+                return;
+            }
+
+            failStop("[POLICY] Multiple Kafka client instances/types detected. "
+                    + "Registered=" + REGISTERED_CLIENT_TYPES + ", New=" + type);
         }
+    }
+
+    /**
+     * Microservices such as OrdersService combine an app-level {@code KafkaProducer} (REST ingress)
+     * with a {@code KafkaStreams} runtime in one JVM.
+     */
+    private static boolean isAllowedAdditionalClientType(final KafkaClientType type)
+    {
+        if (type == KafkaClientType.PRODUCER && REGISTERED_CLIENT_TYPES.contains(KafkaClientType.STREAMS))
+        {
+            return true;
+        }
+        if (type == KafkaClientType.STREAMS && REGISTERED_CLIENT_TYPES.contains(KafkaClientType.PRODUCER))
+        {
+            return true;
+        }
+        return false;
     }
 
     private static KafkaClientType mapType(String t)
@@ -161,12 +181,17 @@ public final class SocketPolicyBootstrap {
     public static void checkSocketConnect(InetSocketAddress addr)
     {
 
-        if (Boolean.TRUE.equals(TRUSTED.get()))
-        {
-            return;
-        }
+    if (Boolean.TRUE.equals(TRUSTED.get()))
+    {
+        return;
+    }
 
-        if (!isSocketConnectCausedByTrustedSignedKafkaApi())
+    if (!isNetworkEnforcementEnabled())
+    {
+        return;
+    }
+
+    if (!isSocketConnectCausedByTrustedSignedKafkaApi())
         {
             failStop("[POLICY] Unauthorized network access to " + addr);
         }
@@ -188,7 +213,7 @@ public final class SocketPolicyBootstrap {
             foundKafkaApiFrame = true;
 
             // The Kafka API classes on the stack that trigger a socket connect must come
-            // from JARs signed with the trusted certificate.
+            // from JARs signed by a trusted certificate (mkcert CA chain or optional leaf pin).
             try
             {
                 CodeSource source = frameClass.getProtectionDomain().getCodeSource();
@@ -222,6 +247,11 @@ public final class SocketPolicyBootstrap {
         return false;
     }
 
+    private static boolean isNetworkEnforcementEnabled()
+    {
+        return Boolean.parseBoolean(System.getProperty("policy.agent.network.enforcement", "true"));
+    }
+
     private static boolean isSignedByTrustedCertificate(CodeSource source)
     {
         // Null source means we cannot establish provenance/signer information for the class,
@@ -241,53 +271,13 @@ public final class SocketPolicyBootstrap {
             return false;
         }
 
-        for (Certificate cert : certs)
+        if (!PolicyCertificateTrust.isTrustedSignerChain(certs))
         {
-            if (cert instanceof X509Certificate)
-            {
-                if (sameCertificate((X509Certificate) cert, TRUSTED_CERT))
-                {
-                    return true;
-                }
-            }
+            System.err.println("[POLICY][DEBUG] Untrusted signer chain for CodeSource: " + source.getLocation()
+                    + ", certCount=" + certs.length);
+            return false;
         }
 
-        System.err.println("[POLICY][DEBUG] No trusted certificate match for CodeSource: " + source.getLocation()
-                + ", certCount=" + certs.length);
-
-        return false;
-    }
-
-    private static boolean sameCertificate(X509Certificate candidate, X509Certificate trusted)
-    {
-        try
-        {
-            return java.util.Arrays.equals(candidate.getEncoded(), trusted.getEncoded());
-        }
-        catch (Exception e)
-        {
-            throw new RuntimeException("Unable to compare X.509 certificates", e);
-        }
-    }
-
-    private static X509Certificate loadTrustedCertificate()
-    {
-        if (TRUSTED_CERT_PATH.isEmpty())
-        {
-            failStop("[POLICY] Missing trusted certificate path. Set -Dpolicy.agent.trusted.cert.path=<path-to-kafka-signing-cert.pem>");
-        }
-
-        Path certPath = Paths.get(TRUSTED_CERT_PATH);
-
-        try (InputStream in = Files.newInputStream(certPath))
-        {
-            CertificateFactory cf = CertificateFactory.getInstance("X.509");
-            return (X509Certificate) cf.generateCertificate(in);
-        }
-        catch (Exception e)
-        {
-            failStop("[POLICY] Unable to load trusted certificate from " + certPath + ": " + e.getMessage());
-            throw new RuntimeException(e);
-        }
+        return true;
     }
 }

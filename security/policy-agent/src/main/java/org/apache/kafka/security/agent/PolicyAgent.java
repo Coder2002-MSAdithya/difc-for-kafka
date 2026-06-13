@@ -8,6 +8,8 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.lang.instrument.Instrumentation;
 import java.nio.file.Files;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.jar.JarEntry;
 import java.util.jar.JarFile;
 import java.util.jar.JarOutputStream;
@@ -28,21 +30,15 @@ public class PolicyAgent
 
             try(JarOutputStream jos = new JarOutputStream(new FileOutputStream(tempJar)))
             {
-                addClassToJar(jos, SocketAdvice.class);
-                addClassToJar(jos, SocketAdvice.KafkaClientCtorAdvice.class);
-                addClassToJar(jos, SocketAdvice.StreamsInternalRegionAdvice.class);
-                addClassToJar(jos, SocketAdvice.StreamsLogicalClientAdvice.class);
-                addClassToJar(jos, SocketAdvice.StreamsTopologyAdvice.class);
-//                addClassToJar(jos, SocketAdvice.DslFunctionCaptureAdvice.class);
-                addClassToJar(jos, SocketAdvice.ForbidProcessorApiAdvice.class);
-                addClassToJar(jos, SocketAdvice.SocketConnectAdvice.class);
-                addClassToJar(jos, SocketAdvice.SocketChannelConnectAdvice.class);
-                addClassToJar(jos, org.apache.kafka.security.agent.bootstrap.internal.SocketPolicyBootstrap.class);
-                addClassToJar(jos, org.apache.kafka.security.agent.bootstrap.internal.SocketPolicyBootstrap.KafkaClientType.class);
-                addClassToJar(jos, LambdaMetafactoryAdvice.class);
-                addClassToJar(jos, LambdaObjectCtorAdvice.class);
-                addClassToJar(jos, LambdaRegistry.class);
-                addClassToJar(jos, LambdaRegistry.LambdaInfo.class);
+                final Set<String> addedEntries = new HashSet<>();
+                addClassToJar(jos, SocketAdvice.class, addedEntries);
+                addClassToJar(jos, org.apache.kafka.security.agent.bootstrap.internal.SocketPolicyBootstrap.class, addedEntries);
+                addClassToJar(jos, org.apache.kafka.security.agent.bootstrap.internal.PolicyCertificateTrust.class, addedEntries);
+                addClassToJar(jos, LambdaMetafactoryAdvice.class, addedEntries);
+                addClassToJar(jos, LambdaObjectCtorAdvice.class, addedEntries);
+                addClassToJar(jos, LambdaRegistry.class, addedEntries);
+                addClassToJar(jos, DslProcessingPolicyTracker.class, addedEntries);
+                addClassToJar(jos, PolicyAttestationSigner.class, addedEntries);
             }
 
             inst.appendToBootstrapClassLoaderSearch(new JarFile(tempJar));
@@ -69,8 +65,9 @@ public class PolicyAgent
             agentBuilder =
                     agentBuilder.type(named("org.apache.kafka.clients.producer.KafkaProducer"))
                             .transform((b, td, cl, m, pd) ->
-                                    b.visit(net.bytebuddy.asm.Advice.to(SocketAdvice.KafkaClientCtorAdvice.class).on(isConstructor())
-                                    )
+                                    b.visit(net.bytebuddy.asm.Advice.to(SocketAdvice.KafkaClientCtorAdvice.class).on(isConstructor()))
+                                            .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.ProducerSendAdvice.class)
+                                                    .on(named("send")))
                             );
 
             // ========================================================
@@ -79,6 +76,10 @@ public class PolicyAgent
             agentBuilder = agentBuilder.type(named("org.apache.kafka.clients.consumer.KafkaConsumer"))
                     .transform((b, td, cl, m, pd) ->
                             b.visit(net.bytebuddy.asm.Advice.to(SocketAdvice.KafkaClientCtorAdvice.class).on(isConstructor()))
+                                    .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.ConsumerSubscribeAdvice.class)
+                                            .on(named("subscribe")))
+                                    .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.ConsumerAssignAdvice.class)
+                                            .on(named("assign")))
                     );
 
             // ========================================================
@@ -249,6 +250,17 @@ public class PolicyAgent
                                     .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.ToStreamAdvice.class).on(named("toStream")))
                                     .visit(Advice.to(KafkaEntrypointAdvice.MergeAdvice.class).on(named("merge")))
                                     .visit(Advice.to(KafkaEntrypointAdvice.ThroughAdvice.class).on(named("through")))
+                                    .visit(Advice.to(KafkaEntrypointAdvice.JoinAdvice.class)
+                                            .on(named("join").or(named("leftJoin")).or(named("outerJoin"))))
+                                    .visit(Advice.to(KafkaEntrypointAdvice.AddTagsAdvice.class).on(named("addTags")))
+                                    .visit(Advice.to(KafkaEntrypointAdvice.DeclassifyTagsAdvice.class).on(named("declassifyTags")))
+                                    .visit(Advice.to(KafkaEntrypointAdvice.SplitAdvice.class).on(named("split")))
+                    );
+
+            agentBuilder = agentBuilder
+                    .type(named("org.apache.kafka.streams.kstream.internals.BranchedKStreamImpl"))
+                    .transform((b, td, cl, m, pd) ->
+                            b.visit(Advice.to(KafkaEntrypointAdvice.BranchAdvice.class).on(named("branch")))
                     );
 
 
@@ -285,6 +297,7 @@ public class PolicyAgent
             agentBuilder = agentBuilder.type(named("org.apache.kafka.streams.StreamsBuilder"))
                     .transform((b, td, cl, m, pd) ->
                             b.visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.FromAdvice.class).on(named("stream")))
+                                    .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.TableAdvice.class).on(named("table")))
                     );
 
 
@@ -312,9 +325,22 @@ public class PolicyAgent
         }
     }
 
-    private static void addClassToJar(JarOutputStream jos, Class<?> clazz) throws Exception
+    private static void addClassToJar(JarOutputStream jos, Class<?> clazz, Set<String> addedEntries) throws Exception
+    {
+        addSingleClassToJar(jos, clazz, addedEntries);
+        for (Class<?> nested : clazz.getDeclaredClasses())
+        {
+            addClassToJar(jos, nested, addedEntries);
+        }
+    }
+
+    private static void addSingleClassToJar(JarOutputStream jos, Class<?> clazz, Set<String> addedEntries) throws Exception
     {
         String classFile = clazz.getName().replace('.', '/') + ".class";
+        if (!addedEntries.add(classFile))
+        {
+            return;
+        }
         jos.putNextEntry(new JarEntry(classFile));
 
         try(InputStream is = clazz.getClassLoader().getResourceAsStream(classFile))

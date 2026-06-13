@@ -16,20 +16,29 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
+import java.util.Set;
 
 public final class DslGraphTracker {
     private static final Object LOCK = new Object();
     private static final IdentityHashMap<Object, String> OBJECT_NODE = new IdentityHashMap<>();
     private static final Map<String, String> TOPIC_NODES = new LinkedHashMap<>();
     private static final Map<String, String> STORE_NODES = new LinkedHashMap<>();
+    private static final Map<String, String> INTERNAL_TOPIC_NODES = new LinkedHashMap<>();
     private static final LinkedHashMap<String, Node> NODES = new LinkedHashMap<>();
     private static final List<Edge> EDGES = new ArrayList<>();
     private static int nodeSeq = 1;
+    private static String pendingRepartitionStreamNode = null;
+    private static String pendingRepartitionTopicNode = null;
+    private static String pendingMaterializationOpId = null;
     private static final boolean DEBUG_LAMBDAS = true;
 
     static {
@@ -37,6 +46,38 @@ public final class DslGraphTracker {
     }
 
     private DslGraphTracker() {}
+
+    public static void recordTableSource(Object returned, Object topics)
+    {
+        synchronized (LOCK)
+        {
+            String tableNode = ensureNode(returned, "KTable[aggregated-state]");
+            if (topics instanceof Iterable<?> iterable)
+            {
+                for (Object topic : iterable)
+                {
+                    String topicNode = ensureTopicNode(normalize(topic));
+                    EDGES.add(new Edge(topicNode, tableNode, "table-changelog"));
+                }
+            }
+            else if (topics instanceof String[] array)
+            {
+                for (String topic : array)
+                {
+                    String topicNode = ensureTopicNode(topic);
+                    EDGES.add(new Edge(topicNode, tableNode, "table-changelog"));
+                }
+            }
+            else
+            {
+                String topicNode = ensureTopicNode(normalize(topics));
+                EDGES.add(new Edge(topicNode, tableNode, "table-changelog"));
+            }
+            DslProcessingPolicyTracker.recordSource(returned, topics);
+            DslProcessingPolicyTracker.registerComponent("kafka-table");
+            writeDotFile();
+        }
+    }
 
     public static void recordSource(Object returned, Object topics)
     {
@@ -81,6 +122,7 @@ public final class DslGraphTracker {
                                 "source"));
             }
 
+            DslProcessingPolicyTracker.recordSource(returned, topics);
             writeDotFile();
         }
     }
@@ -88,18 +130,17 @@ public final class DslGraphTracker {
     public static void recordUnary(String operator, Object upstream, Object returned, Object arg, Object function, boolean source, boolean sink) {
         synchronized (LOCK) {
             String inNode = source ? null : ensureNode(upstream, "stream");
+            if (inNode != null && pendingRepartitionTopicNode != null) {
+                EDGES.add(new Edge(pendingRepartitionTopicNode, inNode, "repartition-read"));
+                pendingRepartitionTopicNode = null;
+            }
             String outNode = sink ? ensureNode(upstream, "stream") : ensureNode(returned, operator + "Out");
-            String semantics =
-                    operator
-                            + formatSemantics(
-                            operator,
-                            arg,
-                            function);
+            String label = formatCleanOperatorLabel(operator, arg, function);
 
             String opId =
                     createOperatorNode(
                             operator,
-                            semantics,
+                            label,
                             "box");
             if (inNode != null) EDGES.add(new Edge(inNode, opId, "input"));
             if (!sink)
@@ -122,6 +163,13 @@ public final class DslGraphTracker {
                                 sinkTopic,
                                 "writes"));
             }
+            if ("selectKey".equals(operator) || "groupBy".equals(operator) || "groupByKey".equals(operator)) {
+                pendingRepartitionStreamNode = outNode;
+            }
+            if ("aggregate".equals(operator) || "reduce".equals(operator) || "count".equals(operator)) {
+                pendingMaterializationOpId = opId;
+            }
+            DslProcessingPolicyTracker.recordUnary(operator, upstream, returned, source);
             writeDotFile();
         }
     }
@@ -267,22 +315,18 @@ public final class DslGraphTracker {
             String rightNode = ensureNode(right, "stream");
             String outNode = ensureNode(returned, operator + "Out");
 
-            String semantics =
-                    operator
-                            + formatSemantics(
-                            operator,
-                            null,
-                            function);
+            String label = formatCleanOperatorLabel(operator, null, function);
 
             String opId =
                     createOperatorNode(
                             operator,
-                            semantics,
+                            label,
                             "hexagon");
 
             EDGES.add(new Edge(leftNode, opId, "left"));
             EDGES.add(new Edge(rightNode, opId, "right"));
             EDGES.add(new Edge(opId, outNode, "output"));
+            DslProcessingPolicyTracker.recordJoin(operator, left, right, returned);
             writeDotFile();
         }
     }
@@ -292,8 +336,8 @@ public final class DslGraphTracker {
         synchronized (LOCK)
         {
             String inNode = ensureNode(upstream, "stream");
-            String semantics = "branch" + formatSemantics("branch", null, predicates);
-            String opId = createOperatorNode("branch", semantics, "diamond");
+            String label = formatCleanOperatorLabel("split", null, predicates);
+            String opId = createOperatorNode("split", label, "diamond");
             EDGES.add(new Edge(inNode, opId, "input"));
 
             if (branches != null)
@@ -304,6 +348,7 @@ public final class DslGraphTracker {
                     EDGES.add(new Edge(opId, out, "branch[" + i + "]"));
                 }
             }
+            DslProcessingPolicyTracker.recordBranch(upstream, branches);
             writeDotFile();
         }
     }
@@ -314,11 +359,74 @@ public final class DslGraphTracker {
         {
             String in = ensureNode(input, "stream");
             String out = ensureNode(output, "stream");
-            String topicNode = ensureTopicNode(normalize(topic));
-            EDGES.add(new Edge(in, topicNode, "through-write"));
-            EDGES.add(new Edge(topicNode, out, "through-read"));
+            String topicNode = ensureInternalTopicNode(normalize(topic), "repartition");
+            EDGES.add(new Edge(in, topicNode, "repartition-write"));
+            EDGES.add(new Edge(topicNode, out, "repartition-read"));
+            DslProcessingPolicyTracker.recordThrough(input, output, topic);
             writeDotFile();
         }
+    }
+
+    public static void recordInternalTopic(final String topic)
+    {
+        synchronized (LOCK)
+        {
+            final String kind = classifyInternalTopic(topic);
+            final String topicNode = ensureInternalTopicNode(topic, kind);
+            if ("repartition".equals(kind) && pendingRepartitionStreamNode != null)
+            {
+                EDGES.add(new Edge(pendingRepartitionStreamNode, topicNode, "repartition-write"));
+                pendingRepartitionTopicNode = topicNode;
+                pendingRepartitionStreamNode = null;
+            }
+            else if ("changelog".equals(kind) && pendingMaterializationOpId != null)
+            {
+                EDGES.add(new Edge(pendingMaterializationOpId, topicNode, "changelog-write"));
+                pendingMaterializationOpId = null;
+            }
+            writeDotFile();
+        }
+    }
+
+    private static String classifyInternalTopic(final String topic)
+    {
+        if (topic == null)
+        {
+            return "internal";
+        }
+        final String lower = topic.toLowerCase();
+        if (lower.contains("-repartition") || lower.endsWith("repartition"))
+        {
+            return "repartition";
+        }
+        if (lower.contains("-changelog") || lower.contains("changelog") || lower.contains("-store-changelog"))
+        {
+            return "changelog";
+        }
+        return "internal";
+    }
+
+    private static String ensureInternalTopicNode(final String topic, final String kind)
+    {
+        final String normalized = topic.replaceAll("[^A-Za-z0-9_\\-]", "_");
+        final String key = kind + ":" + normalized;
+        final String existing = INTERNAL_TOPIC_NODES.get(key);
+        if (existing != null)
+        {
+            return existing;
+        }
+        final String id = "internal_" + normalized;
+        NODES.put(
+                id,
+                new Node(
+                        id,
+                        "internalTopic",
+                        kind + ":" + topic,
+                        false,
+                        "cylinder",
+                        "#E8DAEF"));
+        INTERNAL_TOPIC_NODES.put(key, id);
+        return id;
     }
 
     public static void recordStateStore(
@@ -326,11 +434,226 @@ public final class DslGraphTracker {
     {
         synchronized (LOCK)
         {
-            ensureStateStoreNode(
-                    normalize(store));
-
+            final String storeNode =
+                    ensureStateStoreNode(
+                            normalize(store));
+            if (pendingMaterializationOpId != null)
+            {
+                EDGES.add(new Edge(pendingMaterializationOpId, storeNode, "materializes"));
+                pendingMaterializationOpId = null;
+            }
             writeDotFile();
         }
+    }
+
+    public static void recordDifcOp(
+            final String operator,
+            final Object upstream,
+            final Object tags,
+            final Object returned)
+    {
+        synchronized (LOCK)
+        {
+            final String inNode = ensureNode(upstream, "stream");
+            final String outNode = ensureNode(returned != null ? returned : upstream, "stream");
+            final String label = formatCleanOperatorLabel(operator, tags, null);
+            final String opId = createOperatorNode(operator, label, "box");
+            EDGES.add(new Edge(inNode, opId, "input"));
+            EDGES.add(new Edge(opId, outNode, "output"));
+            writeDotFile();
+        }
+    }
+
+    public static Set<String> deriveIngressTopicsForEgressTopic(final String egressTopic)
+    {
+        synchronized (LOCK)
+        {
+            final String egressNodeId = TOPIC_NODES.get(egressTopic.replaceAll("[^A-Za-z0-9_\\-]", "_"));
+            if (egressNodeId == null)
+            {
+                return Set.of();
+            }
+            final Map<String, List<String>> reverse = reverseAdjacency();
+            final Set<String> ingressTopics = new LinkedHashSet<>();
+            final Set<String> visited = new HashSet<>();
+            final Queue<String> queue = new ArrayDeque<>();
+            queue.add(egressNodeId);
+            while (!queue.isEmpty())
+            {
+                final String nodeId = queue.poll();
+                if (!visited.add(nodeId))
+                {
+                    continue;
+                }
+                final Node node = NODES.get(nodeId);
+                if (node != null && "topic".equals(node.kind) && node.label.startsWith("topic:")
+                        && !("topic:" + egressTopic).equals(node.label))
+                {
+                    ingressTopics.add(node.label.substring(6));
+                }
+                for (final String upstream : reverse.getOrDefault(nodeId, List.of()))
+                {
+                    if (!visited.contains(upstream))
+                    {
+                        queue.add(upstream);
+                    }
+                }
+            }
+            return ingressTopics;
+        }
+    }
+
+    public static String exportAggregationAnalysisJson()
+    {
+        synchronized (LOCK)
+        {
+            final Map<String, Integer> operatorCounts = new LinkedHashMap<>();
+            int joinCount = 0;
+            int branchCount = 0;
+            int mergeCount = 0;
+            for (Node node : NODES.values())
+            {
+                if (!"operator".equals(node.kind) && !"difc".equals(node.kind))
+                {
+                    continue;
+                }
+                final String op = normalizeOperatorLabel(node.label);
+                operatorCounts.merge(op, 1, Integer::sum);
+                if (op.contains("join"))
+                {
+                    joinCount++;
+                }
+                else if ("branch".equals(op) || "split".equals(op))
+                {
+                    branchCount++;
+                }
+                else if ("merge".equals(op))
+                {
+                    mergeCount++;
+                }
+            }
+            int total = 0;
+            for (Map.Entry<String, Integer> entry : operatorCounts.entrySet())
+            {
+                if (isAggregationOperator(entry.getKey()))
+                {
+                    total += entry.getValue();
+                }
+            }
+            final StringBuilder countsJson = new StringBuilder("{");
+            boolean first = true;
+            for (Map.Entry<String, Integer> entry : operatorCounts.entrySet())
+            {
+                if (!first)
+                {
+                    countsJson.append(',');
+                }
+                countsJson.append('"').append(escapeJson(entry.getKey())).append("\":")
+                        .append(entry.getValue());
+                first = false;
+            }
+            countsJson.append('}');
+            return "{"
+                    + "\"operatorCounts\":" + countsJson + ","
+                    + "\"joinCount\":" + joinCount + ","
+                    + "\"branchCount\":" + branchCount + ","
+                    + "\"mergeCount\":" + mergeCount + ","
+                    + "\"totalAggregationOperators\":" + total
+                    + "}";
+        }
+    }
+
+    private static boolean isAggregationOperator(final String op)
+    {
+        return switch (op)
+        {
+            case "aggregate", "reduce", "count", "join", "merge", "groupBy", "groupByKey",
+                 "windowedBy", "branch", "split" -> true;
+            default -> op.contains("join");
+        };
+    }
+
+    private static String normalizeOperatorLabel(final String label)
+    {
+        if (label == null || label.isEmpty())
+        {
+            return "operator";
+        }
+        final int paren = label.indexOf('(');
+        return (paren > 0 ? label.substring(0, paren) : label).trim();
+    }
+
+    private static Map<String, List<String>> reverseAdjacency()
+    {
+        final Map<String, List<String>> reverse = new LinkedHashMap<>();
+        for (Edge edge : EDGES)
+        {
+            reverse.computeIfAbsent(edge.to, k -> new ArrayList<>()).add(edge.from);
+        }
+        return reverse;
+    }
+
+    private static String formatCleanOperatorLabel(
+            final String operator,
+            final Object arg,
+            final Object function)
+    {
+        if (operator == null || operator.isEmpty())
+        {
+            return "?";
+        }
+        switch (operator)
+        {
+            case "to":
+                return arg != null ? "to\n" + normalize(arg) : "to";
+            case "through":
+                return arg != null ? "through\n" + shortenForDisplay(normalize(arg)) : "through";
+            case "addTags":
+            case "declassifyTags":
+                return arg != null ? operator + "\n" + normalize(arg) : operator;
+            case "branch":
+                return "split";
+            default:
+                return operator;
+        }
+    }
+
+    private static String shortenForDisplay(final String value)
+    {
+        if (value == null || value.isEmpty())
+        {
+            return "";
+        }
+        if (value.length() <= 48)
+        {
+            return value;
+        }
+        return value.substring(0, 45) + "...";
+    }
+
+    private static String displayLabel(final Node node)
+    {
+        if (node == null || node.label() == null)
+        {
+            return "";
+        }
+        if ("topic".equals(node.kind()) && node.label().startsWith("topic:"))
+        {
+            return node.label().substring(6);
+        }
+        if ("internalTopic".equals(node.kind()))
+        {
+            final int idx = node.label().indexOf(':');
+            if (idx >= 0 && idx + 1 < node.label().length())
+            {
+                return shortenForDisplay(node.label().substring(idx + 1));
+            }
+        }
+        if ("stateStore".equals(node.kind()))
+        {
+            return "state store";
+        }
+        return node.label();
     }
 
     private static String formatSemantics(String operator, Object arg, Object function) {
@@ -937,6 +1260,88 @@ public final class DslGraphTracker {
 
     private static String normalize(Object o) { return o == null ? "null" : String.valueOf(o).replace("\"", "'"); }
 
+    /**
+     * Export the instrumented DSL graph as JSON for grant-time policy verification.
+     */
+    public static String exportPolicyGraphJson()
+    {
+        synchronized (LOCK)
+        {
+            final StringBuilder nodesJson = new StringBuilder("[");
+            boolean firstNode = true;
+            for (Node node : NODES.values())
+            {
+                if (!firstNode)
+                {
+                    nodesJson.append(',');
+                }
+                nodesJson.append('{')
+                        .append("\"id\":\"").append(escapeJson(node.id)).append("\",")
+                        .append("\"kind\":\"").append(escapeJson(node.kind)).append("\",")
+                        .append("\"label\":\"").append(escapeJson(node.label)).append("\"");
+                if ("topic".equals(node.kind) && node.label.startsWith("topic:"))
+                {
+                    nodesJson.append(",\"topic\":\"").append(escapeJson(node.label.substring(6))).append("\"");
+                }
+                else if ("internalTopic".equals(node.kind) && node.label.contains(":"))
+                {
+                    final int colon = node.label.indexOf(':');
+                    nodesJson.append(",\"internalTopicKind\":\"")
+                            .append(escapeJson(node.label.substring(0, colon)))
+                            .append("\",")
+                            .append("\"topic\":\"")
+                            .append(escapeJson(node.label.substring(colon + 1)))
+                            .append("\"");
+                }
+                else if ("stateStore".equals(node.kind) && node.label.startsWith("state-store:"))
+                {
+                    nodesJson.append(",\"storeName\":\"")
+                            .append(escapeJson(node.label.substring("state-store:".length())))
+                            .append("\"");
+                }
+                else if ("stream".equals(node.kind) && node.label.contains("KTable"))
+                {
+                    nodesJson.append(",\"tableRole\":\"aggregated-state\"");
+                }
+                nodesJson.append('}');
+                firstNode = false;
+            }
+            nodesJson.append(']');
+
+            final StringBuilder edgesJson = new StringBuilder("[");
+            boolean firstEdge = true;
+            for (Edge edge : EDGES)
+            {
+                if (!firstEdge)
+                {
+                    edgesJson.append(',');
+                }
+                edgesJson.append('{')
+                        .append("\"from\":\"").append(escapeJson(edge.from)).append("\",")
+                        .append("\"to\":\"").append(escapeJson(edge.to)).append("\",")
+                        .append("\"label\":\"").append(escapeJson(edge.label)).append("\"")
+                        .append('}');
+                firstEdge = false;
+            }
+            edgesJson.append(']');
+
+            return "{\"nodes\":" + nodesJson + ",\"edges\":" + edgesJson + "}";
+        }
+    }
+
+    private static String escapeJson(final String value)
+    {
+        if (value == null)
+        {
+            return "";
+        }
+        return value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\r", "\\r")
+                .replace("\n", "\\n");
+    }
+
     public static void writeDotFile()
     {
         synchronized (LOCK)
@@ -944,7 +1349,7 @@ public final class DslGraphTracker {
             String path =
                     System.getProperty(
                             "policy.dsl.dot.path",
-                            "build/reports/policy-dsl-topology.dot");
+                            "policy-dsl-topology.dot");
 
             Path dotPath =
                     Paths.get(path).toAbsolutePath();
@@ -1009,7 +1414,7 @@ public final class DslGraphTracker {
                         .append("\" ");
 
                 sb.append("[label=\"")
-                        .append(escape(node.label))
+                        .append(escape(displayLabel(node)))
                         .append("\"");
 
                 sb.append(", class=\"")
@@ -1075,8 +1480,14 @@ public final class DslGraphTracker {
 
     private static String escape(String s)
     {
+        if (s == null)
+        {
+            return "";
+        }
         return s
                 .replace("\\", "\\\\")
+                .replace("\n", "\\n")
+                .replace("\r", "")
                 .replace("\"", "\\\"")
                 .replace("{", "\\{")
                 .replace("}", "\\}")
