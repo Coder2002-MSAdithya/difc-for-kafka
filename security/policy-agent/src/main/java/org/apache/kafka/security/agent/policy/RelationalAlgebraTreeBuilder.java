@@ -41,10 +41,14 @@ public final class RelationalAlgebraTreeBuilder {
       return null;
     }
     final List<String> operators = egress.getOperators() == null ? List.of() : egress.getOperators();
+    final List<AppProcessingPolicy.OperatorCallbackProjection> callbacks =
+        alignCallbacksToOperators(
+            operators,
+            egress.getCallbackProjections() == null ? List.of() : egress.getCallbackProjections());
     if (ingressTopics.size() == 1) {
-      return buildLinearTree(ingressTopics.iterator().next(), egress.getTopic(), operators);
+      return buildLinearTree(ingressTopics.iterator().next(), egress.getTopic(), operators, callbacks);
     }
-    return buildJoinTree(new ArrayList<>(ingressTopics), egress.getTopic(), operators);
+    return buildJoinTree(new ArrayList<>(ingressTopics), egress.getTopic(), operators, callbacks);
   }
 
   private static AppProcessingPolicy.RelationalAlgebraExpressionNode buildFromGraph(
@@ -82,9 +86,10 @@ public final class RelationalAlgebraTreeBuilder {
   private static AppProcessingPolicy.RelationalAlgebraExpressionNode buildLinearTree(
       final String ingressTopic,
       final String sinkTopic,
-      final List<String> operators) {
+      final List<String> operators,
+      final List<AppProcessingPolicy.OperatorCallbackProjection> callbacks) {
     final AppProcessingPolicy.RelationalAlgebraExpressionNode body =
-        buildOperatorChain(ingressTopic, sinkTopic, operators);
+        buildOperatorChain(ingressTopic, sinkTopic, operators, callbacks);
     final AppProcessingPolicy.RelationalAlgebraExpressionNode sink =
         RelationalAlgebraTreeSupport.sinkNode(sinkTopic);
     sink.getChildren().add(body);
@@ -95,7 +100,8 @@ public final class RelationalAlgebraTreeBuilder {
   private static AppProcessingPolicy.RelationalAlgebraExpressionNode buildOperatorChain(
       final String ingressTopic,
       final String sinkTopic,
-      final List<String> operators) {
+      final List<String> operators,
+      final List<AppProcessingPolicy.OperatorCallbackProjection> callbacks) {
     AppProcessingPolicy.RelationalAlgebraExpressionNode current =
         RelationalAlgebraTreeSupport.scanNode(ingressTopic);
     for (int i = operators.size() - 1; i >= 0; i--) {
@@ -109,16 +115,48 @@ public final class RelationalAlgebraTreeBuilder {
               RelationalAlgebraTreeSupport.algebraSymbol(op),
               RelationalAlgebraTreeSupport.operatorDescription(op, sinkTopic));
       unary.getChildren().add(current);
+      applyCallbackOutputFields(unary, i, callbacks);
       RelationalAlgebraTreeSupport.annotateOutputFields(unary, sinkTopic);
       current = unary;
     }
     return current;
   }
 
+  private static void applyCallbackOutputFields(
+      final AppProcessingPolicy.RelationalAlgebraExpressionNode node,
+      final int operatorIndex,
+      final List<AppProcessingPolicy.OperatorCallbackProjection> callbacks) {
+    if (callbacks == null || operatorIndex < 0 || operatorIndex >= callbacks.size()) {
+      return;
+    }
+    applyCallbackAnalysis(node, callbacks.get(operatorIndex));
+  }
+
+  static void applyCallbackAnalysis(
+      final AppProcessingPolicy.RelationalAlgebraExpressionNode node,
+      final AppProcessingPolicy.OperatorCallbackProjection callback) {
+    if (node == null || callback == null) {
+      return;
+    }
+    if (callback.getOutputFields() != null && !callback.getOutputFields().isEmpty()) {
+      node.setOutputFields(new ArrayList<>(callback.getOutputFields()));
+    }
+    if (callback.getSelectionFields() != null && !callback.getSelectionFields().isEmpty()) {
+      node.setSelectionFields(new ArrayList<>(callback.getSelectionFields()));
+    }
+    if (callback.getSelectionExpression() != null && !callback.getSelectionExpression().isEmpty()) {
+      node.setSelectionExpression(callback.getSelectionExpression());
+    }
+    if (callback.getKeyFields() != null && !callback.getKeyFields().isEmpty()) {
+      node.setKeyFields(new ArrayList<>(callback.getKeyFields()));
+    }
+  }
+
   private static AppProcessingPolicy.RelationalAlgebraExpressionNode buildJoinTree(
       final List<String> ingressTopics,
       final String sinkTopic,
-      final List<String> operators) {
+      final List<String> operators,
+      final List<AppProcessingPolicy.OperatorCallbackProjection> callbacks) {
     final List<String> normalized = new ArrayList<>();
     for (final String raw : operators) {
       normalized.add(RelationalAlgebraTreeSupport.normalizeOp(raw + "()"));
@@ -137,16 +175,17 @@ public final class RelationalAlgebraTreeBuilder {
       final String ingress = ingressTopics.get(i);
       final AppProcessingPolicy.RelationalAlgebraExpressionNode branch;
       if (i == 0 && !preJoinOps.isEmpty()) {
-        branch = buildOperatorChain(ingress, sinkTopic, stripOpSuffix(preJoinOps));
+        branch = buildOperatorChain(ingress, sinkTopic, stripOpSuffix(preJoinOps), prefixCallbacks(callbacks, 0, joinIdx));
       } else {
         branch = RelationalAlgebraTreeSupport.scanNode(ingress);
       }
       join.getChildren().add(branch);
     }
+    applyCallbackOutputFields(join, joinIdx, callbacks);
     RelationalAlgebraTreeSupport.annotateOutputFields(join, sinkTopic);
 
     AppProcessingPolicy.RelationalAlgebraExpressionNode body = join;
-    body = wrapPostJoinOperators(body, sinkTopic, postJoinOps);
+    body = wrapPostJoinOperators(body, sinkTopic, postJoinOps, callbacks, joinIdx + 1);
 
     final AppProcessingPolicy.RelationalAlgebraExpressionNode sink =
         RelationalAlgebraTreeSupport.sinkNode(sinkTopic);
@@ -163,13 +202,31 @@ public final class RelationalAlgebraTreeBuilder {
     return stripped;
   }
 
+  private static List<AppProcessingPolicy.OperatorCallbackProjection> prefixCallbacks(
+      final List<AppProcessingPolicy.OperatorCallbackProjection> callbacks,
+      final int fromInclusive,
+      final int toExclusive) {
+    if (callbacks == null || callbacks.isEmpty() || fromInclusive >= toExclusive) {
+      return List.of();
+    }
+    final int end = Math.min(toExclusive, callbacks.size());
+    if (fromInclusive >= end) {
+      return List.of();
+    }
+    return new ArrayList<>(callbacks.subList(fromInclusive, end));
+  }
+
   private static AppProcessingPolicy.RelationalAlgebraExpressionNode wrapPostJoinOperators(
       AppProcessingPolicy.RelationalAlgebraExpressionNode body,
       final String sinkTopic,
-      final List<String> postJoinOps) {
+      final List<String> postJoinOps,
+      final List<AppProcessingPolicy.OperatorCallbackProjection> callbacks,
+      final int callbackOffset) {
+    int callbackIndex = callbackOffset;
     for (int i = postJoinOps.size() - 1; i >= 0; i--) {
       final String op = postJoinOps.get(i);
       if (RelationalAlgebraTreeSupport.isPassthroughOp(op)) {
+        callbackIndex++;
         continue;
       }
       final AppProcessingPolicy.RelationalAlgebraExpressionNode unary =
@@ -178,8 +235,10 @@ public final class RelationalAlgebraTreeBuilder {
               RelationalAlgebraTreeSupport.algebraSymbol(op),
               RelationalAlgebraTreeSupport.operatorDescription(op, sinkTopic));
       unary.getChildren().add(body);
+      applyCallbackOutputFields(unary, callbackIndex, callbacks);
       RelationalAlgebraTreeSupport.annotateOutputFields(unary, sinkTopic);
       body = unary;
+      callbackIndex++;
     }
     return body;
   }
@@ -258,15 +317,24 @@ public final class RelationalAlgebraTreeBuilder {
       final Map<String, List<String>> reverse,
       final String sinkTopic,
       final Set<String> visiting) {
+    final ProcessingPolicyGraph.GraphNode internalNode =
+        ProcessingPolicyGraphHelper.nodeById(graph, nodeId);
+    final String internalKind =
+        internalNode == null ? "repartition" : internalNode.getInternalTopicKind();
     for (final String pred : reverse.getOrDefault(nodeId, List.of())) {
       final AppProcessingPolicy.RelationalAlgebraExpressionNode up =
           buildUpstream(pred, graph, reverse, sinkTopic, visiting);
       if (up != null) {
-        final AppProcessingPolicy.RelationalAlgebraExpressionNode repartition =
-            RelationalAlgebraTreeSupport.operatorNode("repartition", "ρ", "repartition");
-        repartition.getChildren().add(up);
-        RelationalAlgebraTreeSupport.annotateOutputFields(repartition, sinkTopic);
-        return repartition;
+        final AppProcessingPolicy.RelationalAlgebraExpressionNode wrapper;
+        if ("changelog".equals(internalKind)) {
+          wrapper =
+              RelationalAlgebraTreeSupport.operatorNode("changelog", "λ_c", "changelog materialization");
+        } else {
+          wrapper = RelationalAlgebraTreeSupport.operatorNode("repartition", "ρ", "repartition");
+        }
+        wrapper.getChildren().add(up);
+        RelationalAlgebraTreeSupport.annotateOutputFields(wrapper, sinkTopic);
+        return wrapper;
       }
     }
     return null;
@@ -410,5 +478,46 @@ public final class RelationalAlgebraTreeBuilder {
       }
     }
     return null;
+  }
+
+  static List<AppProcessingPolicy.OperatorCallbackProjection> alignCallbacksToOperators(
+      final List<String> operators,
+      final List<AppProcessingPolicy.OperatorCallbackProjection> callbacks) {
+    if (operators == null || operators.isEmpty()) {
+      return List.of();
+    }
+    final List<AppProcessingPolicy.OperatorCallbackProjection> aligned = new ArrayList<>();
+    int searchFrom = 0;
+    for (final String operator : operators) {
+      final String normalized = RelationalAlgebraTreeSupport.normalizeOp(operator + "()");
+      if (RelationalAlgebraTreeSupport.isPassthroughOp(normalized)) {
+        continue;
+      }
+      AppProcessingPolicy.OperatorCallbackProjection matched = null;
+      int matchedIndex = -1;
+      for (int i = searchFrom; i < callbacks.size(); i++) {
+        final AppProcessingPolicy.OperatorCallbackProjection candidate = callbacks.get(i);
+        if (operator.equals(candidate.getOperator())) {
+          matched = candidate;
+          matchedIndex = i;
+        }
+      }
+      if (matched != null) {
+        searchFrom = matchedIndex + 1;
+      }
+      if (matched != null) {
+        aligned.add(matched);
+      } else {
+        final AppProcessingPolicy.OperatorCallbackProjection empty =
+            new AppProcessingPolicy.OperatorCallbackProjection();
+        empty.setOperator(operator);
+        empty.setOutputFields(new ArrayList<>());
+        empty.setSelectionFields(new ArrayList<>());
+        empty.setSelectionExpression("");
+        empty.setKeyFields(new ArrayList<>());
+        aligned.add(empty);
+      }
+    }
+    return aligned;
   }
 }

@@ -169,7 +169,7 @@ public final class DslGraphTracker {
             if ("aggregate".equals(operator) || "reduce".equals(operator) || "count".equals(operator)) {
                 pendingMaterializationOpId = opId;
             }
-            DslProcessingPolicyTracker.recordUnary(operator, upstream, returned, source);
+            DslProcessingPolicyTracker.recordUnary(operator, upstream, returned, source, function);
             writeDotFile();
         }
     }
@@ -326,7 +326,7 @@ public final class DslGraphTracker {
             EDGES.add(new Edge(leftNode, opId, "left"));
             EDGES.add(new Edge(rightNode, opId, "right"));
             EDGES.add(new Edge(opId, outNode, "output"));
-            DslProcessingPolicyTracker.recordJoin(operator, left, right, returned);
+            DslProcessingPolicyTracker.recordJoin(operator, left, right, returned, function);
             writeDotFile();
         }
     }

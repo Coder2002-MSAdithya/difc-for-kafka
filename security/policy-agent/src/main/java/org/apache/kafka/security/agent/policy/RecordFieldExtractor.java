@@ -49,6 +49,65 @@ public final class RecordFieldExtractor {
     return extractPojoFields(value.getClass());
   }
 
+  /** Returns POJO/Avro fields whose values are non-null on this instance (projection after map). */
+  public static Set<String> extractPopulatedFields(final Object value) {
+    if (value == null) {
+      return Set.of();
+    }
+    if (value instanceof Map<?, ?> map) {
+      final LinkedHashSet<String> fields = new LinkedHashSet<>();
+      for (final Map.Entry<?, ?> entry : map.entrySet()) {
+        if (entry.getKey() != null && entry.getValue() != null) {
+          fields.add(String.valueOf(entry.getKey()));
+        }
+      }
+      return fields;
+    }
+    final Set<String> avroFields = extractAvroFields(value);
+    if (!avroFields.isEmpty()) {
+      final LinkedHashSet<String> populated = new LinkedHashSet<>();
+      for (final String field : avroFields) {
+        if (readProperty(value, field) != null) {
+          populated.add(field);
+        }
+      }
+      return populated;
+    }
+    final LinkedHashSet<String> populated = new LinkedHashSet<>();
+    for (final String field : extractPojoFields(value.getClass())) {
+      final Object property = readProperty(value, field);
+      if (property == null) {
+        continue;
+      }
+      if (property instanceof Number number && number.longValue() == 0L) {
+        continue;
+      }
+      if (property instanceof Boolean bool && !bool) {
+        continue;
+      }
+      populated.add(field);
+    }
+    return populated;
+  }
+
+  private static Object readProperty(final Object value, final String field) {
+    final String getter = "get" + Character.toUpperCase(field.charAt(0)) + field.substring(1);
+    try {
+      final Method method = value.getClass().getMethod(getter);
+      return method.invoke(value);
+    } catch (final ReflectiveOperationException ignored) {
+      try {
+        final Field declared = value.getClass().getDeclaredField(field);
+        if (declared.trySetAccessible()) {
+          return declared.get(value);
+        }
+      } catch (final ReflectiveOperationException ignoredAgain) {
+        return null;
+      }
+    }
+    return null;
+  }
+
   private static Set<String> extractAvroFields(final Object value) {
     try {
       final Method getSchema = value.getClass().getMethod("getSchema");

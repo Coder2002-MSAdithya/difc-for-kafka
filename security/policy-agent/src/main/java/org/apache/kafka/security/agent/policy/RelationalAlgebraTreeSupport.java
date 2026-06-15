@@ -79,9 +79,6 @@ public final class RelationalAlgebraTreeSupport {
       final String sinkTopic) {
     final String op = node.getTopic() == null ? "" : node.getTopic();
     if (isJoinOp(op)) {
-      if ("orders".equals(sinkTopic)) {
-        return TopicSchemaCatalog.copyFields(TopicSchemaResolver.valueFieldsForTopic("orders"));
-      }
       final Set<String> merged = new LinkedHashSet<>();
       for (final AppProcessingPolicy.RelationalAlgebraExpressionNode child : node.getChildren()) {
         merged.addAll(evaluateOutputFields(child, sinkTopic));
@@ -97,17 +94,21 @@ public final class RelationalAlgebraTreeSupport {
     }
     if (Set.of("mapvalues", "map", "flatmapvalues", "flatmap", "transform", "transformvalues", "process")
         .contains(op)) {
+      if (!node.getOutputFields().isEmpty()) {
+        return new LinkedHashSet<>(node.getOutputFields());
+      }
+      if (node.getChildren().isEmpty()) {
+        return projectionFallback(sinkTopic);
+      }
+      final Set<String> childFields = evaluateOutputFields(node.getChildren().get(0), sinkTopic);
       final Set<String> egressProjection = EgressProjectionRegistry.projectionForEgress(sinkTopic);
-      if (!egressProjection.isEmpty()) {
+      if (!egressProjection.isEmpty()
+          && !childFields.isEmpty()
+          && childFields.size() > egressProjection.size()
+          && childFields.containsAll(egressProjection)) {
         return new LinkedHashSet<>(egressProjection);
       }
-      final Set<String> observedEgress = TopicFieldRegistry.fieldsForTopic(sinkTopic);
-      if (TopicSchemaResolver.isUsefulFieldObservation(observedEgress)) {
-        return new LinkedHashSet<>(observedEgress);
-      }
-      if (TopicSchemaCatalog.isKnownTopic(sinkTopic)) {
-        return TopicSchemaCatalog.copyFields(TopicSchemaResolver.valueFieldsForTopic(sinkTopic));
-      }
+      return childFields;
     }
     if (Set.of("aggregate", "reduce", "count").contains(op)) {
       return Set.of("_aggregate_value");
@@ -116,6 +117,21 @@ public final class RelationalAlgebraTreeSupport {
       return Set.of();
     }
     return evaluateOutputFields(node.getChildren().get(0), sinkTopic);
+  }
+
+  private static Set<String> projectionFallback(final String sinkTopic) {
+    final Set<String> egressProjection = EgressProjectionRegistry.projectionForEgress(sinkTopic);
+    if (!egressProjection.isEmpty()) {
+      return new LinkedHashSet<>(egressProjection);
+    }
+    final Set<String> observedEgress = TopicFieldRegistry.fieldsForTopic(sinkTopic);
+    if (TopicSchemaResolver.isUsefulFieldObservation(observedEgress)) {
+      return new LinkedHashSet<>(observedEgress);
+    }
+    if (TopicSchemaCatalog.isKnownTopic(sinkTopic)) {
+      return TopicSchemaCatalog.copyFields(TopicSchemaResolver.valueFieldsForTopic(sinkTopic));
+    }
+    return Set.of();
   }
 
   public static AppProcessingPolicy.RelationalAlgebraExpressionNode findScan(
@@ -161,11 +177,16 @@ public final class RelationalAlgebraTreeSupport {
     }
     if ("operator".equals(node.getKind())) {
       final String symbol = node.getAlgebraSymbol() == null ? "?" : node.getAlgebraSymbol();
+      final String predicate = formatSelectionPredicate(node);
       if (node.getChildren().isEmpty()) {
-        return symbol;
+        return predicate.isEmpty() ? symbol : symbol + "[" + predicate + "]";
       }
       if (node.getChildren().size() == 1) {
-        return symbol + "(" + formatNode(node.getChildren().get(0)) + ")";
+        final String child = formatNode(node.getChildren().get(0));
+        if (predicate.isEmpty()) {
+          return symbol + "(" + child + ")";
+        }
+        return symbol + "[" + predicate + "](" + child + ")";
       }
       final StringBuilder args = new StringBuilder();
       for (int i = 0; i < node.getChildren().size(); i++) {
@@ -177,6 +198,22 @@ public final class RelationalAlgebraTreeSupport {
       return symbol + "(" + args + ")";
     }
     return node.getDescription() == null ? "?" : node.getDescription();
+  }
+
+  private static String formatSelectionPredicate(final AppProcessingPolicy.RelationalAlgebraExpressionNode node) {
+    if (node == null) {
+      return "";
+    }
+    if (node.getSelectionExpression() != null && !node.getSelectionExpression().isEmpty()) {
+      return node.getSelectionExpression();
+    }
+    if (node.getSelectionFields() != null && !node.getSelectionFields().isEmpty()) {
+      return String.join(" ∧ ", node.getSelectionFields());
+    }
+    if (node.getKeyFields() != null && !node.getKeyFields().isEmpty()) {
+      return "key:" + String.join(",", node.getKeyFields());
+    }
+    return "";
   }
 
   public static boolean isJoinOp(final String op) {
@@ -239,6 +276,7 @@ public final class RelationalAlgebraTreeSupport {
         case "aggregate", "reduce", "count", "groupby", "groupbykey", "windowedby" -> path.setAggregated(true);
         case "join", "leftjoin", "outerjoin" -> path.setJoined(true);
         case "repartition" -> path.setRepartitionInvolved(true);
+        case "changelog" -> path.setChangelogInvolved(true);
         default -> {
         }
       }

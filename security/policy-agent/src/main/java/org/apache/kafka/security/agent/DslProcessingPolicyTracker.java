@@ -117,6 +117,16 @@ public final class DslProcessingPolicyTracker
             final Object returned,
             final boolean source)
     {
+        recordUnary(operator, upstream, returned, source, null);
+    }
+
+    public static void recordUnary(
+            final String operator,
+            final Object upstream,
+            final Object returned,
+            final boolean source,
+            final Object callback)
+    {
         synchronized (LOCK)
         {
             if (returned == null)
@@ -133,6 +143,7 @@ public final class DslProcessingPolicyTracker
                 AGGREGATIONS.add(normalizeOperator(operator));
             }
             out.operators.add(normalizeOperator(operator));
+            appendCallbackProjection(out, operator, callback);
         }
     }
 
@@ -141,6 +152,16 @@ public final class DslProcessingPolicyTracker
             final Object left,
             final Object right,
             final Object returned)
+    {
+        recordJoin(operator, left, right, returned, null);
+    }
+
+    public static void recordJoin(
+            final String operator,
+            final Object left,
+            final Object right,
+            final Object returned,
+            final Object joiner)
     {
         synchronized (LOCK)
         {
@@ -154,6 +175,7 @@ public final class DslProcessingPolicyTracker
             final String normalized = normalizeOperator(operator);
             AGGREGATIONS.add(normalized);
             out.operators.add(normalized);
+            appendCallbackProjection(out, normalized, joiner);
         }
     }
 
@@ -199,13 +221,7 @@ public final class DslProcessingPolicyTracker
     {
         synchronized (LOCK)
         {
-            final Set<String> projected =
-                    org.apache.kafka.security.agent.policy.LambdaProjectionAnalyzer.analyzeMapper(mapper);
-            if (projected.isEmpty())
-            {
-                return;
-            }
-            applyProjection(upstream, returned, projected, "mapValues");
+            refreshCallbackProjection(returned, "mapValues", mapper);
         }
     }
 
@@ -216,30 +232,76 @@ public final class DslProcessingPolicyTracker
     {
         synchronized (LOCK)
         {
-            final Set<String> projected =
-                    org.apache.kafka.security.agent.policy.ProcessorOutputAnalyzer.analyzeProcessorSupplier(
-                            processorSupplier);
-            if (projected.isEmpty())
-            {
-                return;
-            }
-            applyProjection(upstream, returned, projected, "process");
+            refreshCallbackProjection(returned, "process", processorSupplier);
         }
     }
 
-    private static void applyProjection(
-            final Object upstream,
+    private static void appendCallbackProjection(
+            final FlowState state,
+            final String operator,
+            final Object callback)
+    {
+        final org.apache.kafka.security.agent.policy.OperatorCallbackEffect effect =
+                org.apache.kafka.security.agent.policy.CallbackProjectionAnalyzer.analyzeEffect(
+                        normalizeOperator(operator), callback);
+        state.callbackProjections.add(CallbackBinding.fromEffect(normalizeOperator(operator), effect));
+        if (!effect.outputFields().isEmpty())
+        {
+            applyProjectionFields(state, effect.outputFields(), normalizeOperator(operator));
+        }
+        if (!effect.selectionFields().isEmpty())
+        {
+            System.out.println(
+                    "[POLICY][ATTEST] "
+                            + normalizeOperator(operator)
+                            + ".selection="
+                            + effect.selectionExpression());
+        }
+    }
+
+    private static void refreshCallbackProjection(
             final Object returned,
-            final Set<String> projected,
+            final String operator,
+            final Object callback)
+    {
+        if (returned == null)
+        {
+            return;
+        }
+        final FlowState out = stateFor(returned, false);
+        final org.apache.kafka.security.agent.policy.OperatorCallbackEffect effect =
+                org.apache.kafka.security.agent.policy.CallbackProjectionAnalyzer.analyzeEffect(
+                        normalizeOperator(operator), callback);
+        if (!out.callbackProjections.isEmpty())
+        {
+            for (int i = out.callbackProjections.size() - 1; i >= 0; i--)
+            {
+                final CallbackBinding binding = out.callbackProjections.get(i);
+                if (normalizeOperator(operator).equals(binding.operator))
+                {
+                    binding.applyEffect(effect);
+                    if (!effect.outputFields().isEmpty())
+                    {
+                        applyProjectionFields(out, effect.outputFields(), normalizeOperator(operator));
+                    }
+                    return;
+                }
+            }
+        }
+        out.callbackProjections.add(CallbackBinding.fromEffect(normalizeOperator(operator), effect));
+        if (!effect.outputFields().isEmpty())
+        {
+            applyProjectionFields(out, effect.outputFields(), normalizeOperator(operator));
+        }
+    }
+
+    private static void applyProjectionFields(
+            final FlowState state,
+            final java.util.Set<String> projected,
             final String operator)
     {
-        final FlowState out = stateFor(returned, true);
-        if (upstream != null)
-        {
-            out.inheritFrom(stateFor(upstream, false));
-        }
-        out.projectedFields.clear();
-        out.projectedFields.addAll(projected);
+        state.projectedFields.clear();
+        state.projectedFields.addAll(projected);
         System.out.println("[POLICY][ATTEST] " + operator + ".projection=" + projected);
     }
 
@@ -265,7 +327,8 @@ public final class DslProcessingPolicyTracker
             EGRESS_PATHS.add(new EgressPathBinding(
                     topicName,
                     new LinkedHashSet<>(state.sources),
-                    new LinkedHashSet<>(state.operators),
+                    orderedRelationalOperators(state),
+                    relationalCallbackBindings(state),
                     new LinkedHashSet<>(state.declassifyTags),
                     new LinkedHashSet<>(state.addTags)));
         }
@@ -574,6 +637,8 @@ public final class DslProcessingPolicyTracker
                     .append("\"topic\":\"").append(escapeJson(path.topic)).append("\",")
                     .append("\"ingressTopics\":").append(toJsonStringArray(path.ingressTopics)).append(',')
                     .append("\"operators\":").append(toJsonStringArray(path.operators)).append(',')
+                    .append("\"callbackProjections\":")
+                    .append(toJsonCallbackProjectionsArray(path.callbackProjections)).append(',')
                     .append("\"declassifyTags\":").append(toJsonStringArray(path.declassifyTags)).append(',')
                     .append("\"addTags\":").append(toJsonStringArray(path.addTags))
                     .append('}');
@@ -581,6 +646,90 @@ public final class DslProcessingPolicyTracker
         }
         sb.append(']');
         return sb.toString();
+    }
+
+    private static String toJsonCallbackProjectionsArray(final List<CallbackBinding> bindings)
+    {
+        final StringBuilder sb = new StringBuilder("[");
+        boolean first = true;
+        for (final CallbackBinding binding : bindings)
+        {
+            if (!first)
+            {
+                sb.append(',');
+            }
+            sb.append('{')
+                    .append("\"operator\":\"").append(escapeJson(binding.operator)).append("\",")
+                    .append("\"outputFields\":").append(toJsonStringArray(binding.outputFields)).append(',')
+                    .append("\"selectionFields\":").append(toJsonStringArray(binding.selectionFields)).append(',')
+                    .append("\"selectionExpression\":\"").append(escapeJson(binding.selectionExpression)).append("\",")
+                    .append("\"keyFields\":").append(toJsonStringArray(binding.keyFields))
+                    .append('}');
+            first = false;
+        }
+        sb.append(']');
+        return sb.toString();
+    }
+
+    private static LinkedHashSet<String> relationalOperators(final FlowState state)
+    {
+        final LinkedHashSet<String> relational = new LinkedHashSet<>();
+        for (final String operator : state.operators)
+        {
+            final String normalized = org.apache.kafka.security.agent.policy.RelationalAlgebraTreeSupport.normalizeOp(
+                    operator + "()");
+            if (!org.apache.kafka.security.agent.policy.RelationalAlgebraTreeSupport.isPassthroughOp(normalized))
+            {
+                relational.add(operator);
+            }
+        }
+        return relational;
+    }
+
+    private static List<String> orderedRelationalOperators(final FlowState state)
+    {
+        final List<String> relational = new ArrayList<>();
+        for (final String operator : state.operators)
+        {
+            final String normalized = org.apache.kafka.security.agent.policy.RelationalAlgebraTreeSupport.normalizeOp(
+                    operator + "()");
+            if (!org.apache.kafka.security.agent.policy.RelationalAlgebraTreeSupport.isPassthroughOp(normalized))
+            {
+                relational.add(operator);
+            }
+        }
+        return relational;
+    }
+
+    private static List<CallbackBinding> relationalCallbackBindings(final FlowState state)
+    {
+        final List<CallbackBinding> relational = new ArrayList<>();
+        int searchFrom = 0;
+        for (final String operator : state.operators)
+        {
+            final String normalized = org.apache.kafka.security.agent.policy.RelationalAlgebraTreeSupport.normalizeOp(
+                    operator + "()");
+            if (org.apache.kafka.security.agent.policy.RelationalAlgebraTreeSupport.isPassthroughOp(normalized))
+            {
+                continue;
+            }
+            CallbackBinding matched = null;
+            for (int i = searchFrom; i < state.callbackProjections.size(); i++)
+            {
+                final CallbackBinding candidate = state.callbackProjections.get(i);
+                if (operator.equals(candidate.operator))
+                {
+                    matched = candidate;
+                    searchFrom = i + 1;
+                    break;
+                }
+            }
+            relational.add(
+                    matched != null
+                            ? matched
+                            : CallbackBinding.fromEffect(operator, org.apache.kafka.security.agent.policy.OperatorCallbackEffect.empty()));
+        }
+        return relational;
     }
 
     private static String toJsonSinksArray()
@@ -620,10 +769,11 @@ public final class DslProcessingPolicyTracker
     private static final class FlowState
     {
         private final LinkedHashSet<String> sources = new LinkedHashSet<>();
-        private final LinkedHashSet<String> operators = new LinkedHashSet<>();
+        private final List<String> operators = new ArrayList<>();
         private final LinkedHashSet<String> declassifyTags = new LinkedHashSet<>();
         private final LinkedHashSet<String> addTags = new LinkedHashSet<>();
         private final LinkedHashSet<String> projectedFields = new LinkedHashSet<>();
+        private final List<CallbackBinding> callbackProjections = new ArrayList<>();
 
         private void inheritFrom(final FlowState other)
         {
@@ -631,6 +781,7 @@ public final class DslProcessingPolicyTracker
             operators.addAll(other.operators);
             declassifyTags.addAll(other.declassifyTags);
             addTags.addAll(other.addTags);
+            callbackProjections.addAll(other.callbackProjections);
             if (!other.projectedFields.isEmpty())
             {
                 projectedFields.clear();
@@ -639,10 +790,57 @@ public final class DslProcessingPolicyTracker
         }
     }
 
+    private static final class CallbackBinding
+    {
+        private final String operator;
+        private final LinkedHashSet<String> outputFields;
+        private final LinkedHashSet<String> selectionFields;
+        private String selectionExpression;
+        private final LinkedHashSet<String> keyFields;
+
+        private CallbackBinding(
+                final String operator,
+                final LinkedHashSet<String> outputFields,
+                final LinkedHashSet<String> selectionFields,
+                final String selectionExpression,
+                final LinkedHashSet<String> keyFields)
+        {
+            this.operator = operator == null ? "" : operator;
+            this.outputFields = outputFields == null ? new LinkedHashSet<>() : outputFields;
+            this.selectionFields = selectionFields == null ? new LinkedHashSet<>() : selectionFields;
+            this.selectionExpression = selectionExpression == null ? "" : selectionExpression;
+            this.keyFields = keyFields == null ? new LinkedHashSet<>() : keyFields;
+        }
+
+        private static CallbackBinding fromEffect(
+                final String operator,
+                final org.apache.kafka.security.agent.policy.OperatorCallbackEffect effect)
+        {
+            return new CallbackBinding(
+                    operator,
+                    new LinkedHashSet<>(effect.outputFields()),
+                    new LinkedHashSet<>(effect.selectionFields()),
+                    effect.selectionExpression(),
+                    new LinkedHashSet<>(effect.keyFields()));
+        }
+
+        private void applyEffect(final org.apache.kafka.security.agent.policy.OperatorCallbackEffect effect)
+        {
+            outputFields.clear();
+            outputFields.addAll(effect.outputFields());
+            selectionFields.clear();
+            selectionFields.addAll(effect.selectionFields());
+            selectionExpression = effect.selectionExpression();
+            keyFields.clear();
+            keyFields.addAll(effect.keyFields());
+        }
+    }
+
     private record EgressPathBinding(
             String topic,
             LinkedHashSet<String> ingressTopics,
-            LinkedHashSet<String> operators,
+            List<String> operators,
+            List<CallbackBinding> callbackProjections,
             LinkedHashSet<String> declassifyTags,
             LinkedHashSet<String> addTags)
     {

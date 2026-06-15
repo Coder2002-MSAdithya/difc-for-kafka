@@ -209,9 +209,34 @@ public final class ProcessingPolicyEnricher {
           return created;
         });
     merged.setIngressTopics(union(merged.getIngressTopics(), path.getIngressTopics()));
-    merged.setOperators(union(merged.getOperators(), path.getOperators()));
+    merged.setOperators(unionOperators(merged.getOperators(), path.getOperators()));
     merged.setDeclassifyTags(union(merged.getDeclassifyTags(), path.getDeclassifyTags()));
     merged.setAddTags(union(merged.getAddTags(), path.getAddTags()));
+    merged.setCallbackProjections(mergeCallbackProjections(merged, path));
+  }
+
+  private static List<String> unionOperators(final List<String> left, final List<String> right) {
+    final List<String> merged = new ArrayList<>(left == null ? List.of() : left);
+    if (right != null) {
+      merged.addAll(right);
+    }
+    return merged;
+  }
+
+  private static List<AppProcessingPolicy.OperatorCallbackProjection> mergeCallbackProjections(
+      final AppProcessingPolicy.EgressPath left,
+      final AppProcessingPolicy.EgressPath right) {
+    if (right.getCallbackProjections().isEmpty()) {
+      return left.getCallbackProjections() == null
+          ? new ArrayList<>()
+          : new ArrayList<>(left.getCallbackProjections());
+    }
+    final List<AppProcessingPolicy.OperatorCallbackProjection> merged = new ArrayList<>();
+    if (left.getCallbackProjections() != null) {
+      merged.addAll(left.getCallbackProjections());
+    }
+    merged.addAll(right.getCallbackProjections());
+    return merged;
   }
 
   private static void mergeManifestGraph(

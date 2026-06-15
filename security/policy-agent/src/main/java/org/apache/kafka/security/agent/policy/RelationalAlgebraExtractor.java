@@ -29,8 +29,16 @@ public final class RelationalAlgebraExtractor {
       }
       final AppProcessingPolicy.RelationalAlgebraExpressionNode tree =
           RelationalAlgebraTreeBuilder.buildForEgress(policy.getGraph(), sinkTopic);
-      AppProcessingPolicy.RelationalAlgebraExpressionNode resolved =
-          tree != null ? tree : RelationalAlgebraTreeBuilder.buildFromEgressMetadata(policy, egress);
+      final boolean hasCallbackProjections =
+          egress.getCallbackProjections() != null && !egress.getCallbackProjections().isEmpty();
+      AppProcessingPolicy.RelationalAlgebraExpressionNode resolved = null;
+      if (hasCallbackProjections) {
+        resolved = RelationalAlgebraTreeBuilder.buildFromEgressMetadata(policy, egress);
+      }
+      if (resolved == null) {
+        resolved =
+            tree != null ? tree : RelationalAlgebraTreeBuilder.buildFromEgressMetadata(policy, egress);
+      }
       final Set<String> expectedIngress =
           ProcessingPolicyGraphHelper.ingressTopicsForEgressPath(policy, egress);
       final Set<String> scanTopics =
@@ -53,7 +61,7 @@ public final class RelationalAlgebraExtractor {
       if (resolved == null) {
         continue;
       }
-      paths.add(buildPathFromTree(sinkTopic, resolved));
+      paths.add(buildPathFromTree(policy, sinkTopic, resolved));
     }
     analysis.setProcessingPaths(paths);
     analysis.setTableSourceCount(countTableSources(policy.getGraph()));
@@ -63,6 +71,7 @@ public final class RelationalAlgebraExtractor {
   }
 
   private static AppProcessingPolicy.ProcessingPathAnalysis buildPathFromTree(
+      final AppProcessingPolicy policy,
       final String sinkTopic,
       final AppProcessingPolicy.RelationalAlgebraExpressionNode tree) {
     final AppProcessingPolicy.ProcessingPathAnalysis path =
@@ -78,6 +87,7 @@ public final class RelationalAlgebraExtractor {
     }
 
     RelationalAlgebraTreeSupport.collectFlags(tree, path);
+    enrichStreamTableMetadata(path, policy);
     final Set<String> outputFields = RelationalAlgebraTreeSupport.evaluateOutputFields(tree, sinkTopic);
     path.setOutputFields(new ArrayList<>(outputFields));
     path.setSchemaChanged(!ingressTopics.isEmpty() && !ingressTopics.contains(sinkTopic));
@@ -107,6 +117,72 @@ public final class RelationalAlgebraExtractor {
     path.setFieldSanitizationRatio((double) allDropped.size() / inputCount);
     path.setSensitiveFieldSanitizationRatio((double) allDroppedSensitive.size() / inputCount);
     return path;
+  }
+
+  private static void enrichStreamTableMetadata(
+      final AppProcessingPolicy.ProcessingPathAnalysis path,
+      final AppProcessingPolicy policy) {
+    if (policy == null || policy.getGraph() == null || path.getIngressTopic() == null) {
+      return;
+    }
+    final List<StreamTablePathExtractor.Step> streamTableSteps =
+        ProcessingPolicyGraphHelper.streamTableStepsOnSanitizedPath(
+            policy.getGraph(), path.getIngressTopic(), path.getEgressTopic());
+    if (streamTableSteps.isEmpty()) {
+      return;
+    }
+    final List<AppProcessingPolicy.RelationalAlgebraStep> steps = new ArrayList<>();
+    for (final StreamTablePathExtractor.Step streamStep : streamTableSteps) {
+      steps.add(toRelationalStep(streamStep));
+      switch (streamStep.getKind()) {
+        case REPARTITION -> path.setRepartitionInvolved(true);
+        case CHANGELOG -> path.setChangelogInvolved(true);
+        case TABLE_FROM_CHANGELOG, TABLE_STATE -> path.setTableInvolved(true);
+        case STATE_STORE -> {
+          final List<String> stores = new ArrayList<>(path.getStateStores());
+          if (streamStep.getStoreName() != null && !stores.contains(streamStep.getStoreName())) {
+            stores.add(streamStep.getStoreName());
+          }
+          path.setStateStores(stores);
+        }
+        default -> {
+        }
+      }
+    }
+    path.setSteps(steps);
+    if (path.isAggregated() && path.isChangelogInvolved()) {
+      path.setTableMaterializedFromAggregate(true);
+    }
+  }
+
+  private static AppProcessingPolicy.RelationalAlgebraStep toRelationalStep(
+      final StreamTablePathExtractor.Step streamStep) {
+    final AppProcessingPolicy.RelationalAlgebraStep step = new AppProcessingPolicy.RelationalAlgebraStep();
+    step.setOperator(streamStep.getName());
+    step.setDescription(streamStep.getEdgeLabel());
+    step.setInternalTopic(streamStep.getTopic());
+    step.setStoreName(streamStep.getStoreName());
+    step.setStreamTableKind(
+        streamStep.getKind() == null ? null : streamStep.getKind().name());
+    return switch (streamStep.getKind()) {
+      case REPARTITION -> {
+        step.setAlgebraSymbol("ρ");
+        yield step;
+      }
+      case CHANGELOG -> {
+        step.setAlgebraSymbol("λ_c");
+        yield step;
+      }
+      case TABLE_FROM_CHANGELOG, TABLE_STATE -> {
+        step.setAlgebraSymbol("λ_t");
+        yield step;
+      }
+      case STATE_STORE -> {
+        step.setAlgebraSymbol("ω");
+        yield step;
+      }
+      default -> step;
+    };
   }
 
   private static int countTableSources(final ProcessingPolicyGraph graph) {

@@ -186,12 +186,14 @@ public final class AppProcessingPolicy {
     private List<String> operators;
     private List<String> declassifyTags;
     private List<String> addTags;
+    private List<OperatorCallbackProjection> callbackProjections = new ArrayList<>();
 
     public EgressPath() {
       ingressTopics = Collections.emptyList();
       operators = Collections.emptyList();
       declassifyTags = Collections.emptyList();
       addTags = Collections.emptyList();
+      callbackProjections = Collections.emptyList();
     }
 
     public String getTopic() {
@@ -232,6 +234,65 @@ public final class AppProcessingPolicy {
 
     public void setAddTags(final List<String> addTags) {
       this.addTags = addTags;
+    }
+
+    public List<OperatorCallbackProjection> getCallbackProjections() {
+      return callbackProjections == null ? Collections.emptyList() : callbackProjections;
+    }
+
+    public void setCallbackProjections(final List<OperatorCallbackProjection> callbackProjections) {
+      this.callbackProjections =
+          callbackProjections == null ? new ArrayList<>() : callbackProjections;
+    }
+  }
+
+  /** Callback-derived relational-algebra metadata for one DSL operator on an egress path. */
+  @JsonIgnoreProperties(ignoreUnknown = true)
+  public static final class OperatorCallbackProjection {
+    private String operator;
+    private List<String> outputFields = new ArrayList<>();
+    private List<String> selectionFields = new ArrayList<>();
+    private String selectionExpression = "";
+    private List<String> keyFields = new ArrayList<>();
+
+    public String getOperator() {
+      return operator;
+    }
+
+    public void setOperator(final String operator) {
+      this.operator = operator;
+    }
+
+    public List<String> getOutputFields() {
+      return outputFields == null ? Collections.emptyList() : outputFields;
+    }
+
+    public void setOutputFields(final List<String> outputFields) {
+      this.outputFields = outputFields == null ? new ArrayList<>() : outputFields;
+    }
+
+    public List<String> getSelectionFields() {
+      return selectionFields == null ? Collections.emptyList() : selectionFields;
+    }
+
+    public void setSelectionFields(final List<String> selectionFields) {
+      this.selectionFields = selectionFields == null ? new ArrayList<>() : selectionFields;
+    }
+
+    public String getSelectionExpression() {
+      return selectionExpression == null ? "" : selectionExpression;
+    }
+
+    public void setSelectionExpression(final String selectionExpression) {
+      this.selectionExpression = selectionExpression == null ? "" : selectionExpression;
+    }
+
+    public List<String> getKeyFields() {
+      return keyFields == null ? Collections.emptyList() : keyFields;
+    }
+
+    public void setKeyFields(final List<String> keyFields) {
+      this.keyFields = keyFields == null ? new ArrayList<>() : keyFields;
     }
   }
 
@@ -673,6 +734,9 @@ public final class AppProcessingPolicy {
     private String topic;
     private List<RelationalAlgebraExpressionNode> children = new ArrayList<>();
     private List<String> outputFields = new ArrayList<>();
+    private List<String> selectionFields = new ArrayList<>();
+    private String selectionExpression = "";
+    private List<String> keyFields = new ArrayList<>();
 
     public String getKind() {
       return kind;
@@ -720,6 +784,30 @@ public final class AppProcessingPolicy {
 
     public void setOutputFields(final List<String> outputFields) {
       this.outputFields = outputFields == null ? new ArrayList<>() : outputFields;
+    }
+
+    public List<String> getSelectionFields() {
+      return selectionFields == null ? Collections.emptyList() : selectionFields;
+    }
+
+    public void setSelectionFields(final List<String> selectionFields) {
+      this.selectionFields = selectionFields == null ? new ArrayList<>() : selectionFields;
+    }
+
+    public String getSelectionExpression() {
+      return selectionExpression == null ? "" : selectionExpression;
+    }
+
+    public void setSelectionExpression(final String selectionExpression) {
+      this.selectionExpression = selectionExpression == null ? "" : selectionExpression;
+    }
+
+    public List<String> getKeyFields() {
+      return keyFields == null ? Collections.emptyList() : keyFields;
+    }
+
+    public void setKeyFields(final List<String> keyFields) {
+      this.keyFields = keyFields == null ? new ArrayList<>() : keyFields;
     }
   }
 }

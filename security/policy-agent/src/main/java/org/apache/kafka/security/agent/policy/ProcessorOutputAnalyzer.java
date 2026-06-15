@@ -123,6 +123,24 @@ public final class ProcessorOutputAnalyzer {
         return null;
       }
     }
+    final Class<?> fromGet = resolveProcessorClassFromSupplierGet(processorSupplier);
+    if (fromGet != null) {
+      return fromGet;
+    }
+    return resolveProcessorClassFromSupplierBytecode(processorSupplier.getClass());
+  }
+
+  private static Class<?> resolveProcessorClassFromSupplierGet(final Object processorSupplier) {
+    if (processorSupplier instanceof java.util.function.Supplier<?> supplier) {
+      try {
+        final Object processor = supplier.get();
+        if (processor != null) {
+          return processor.getClass();
+        }
+      } catch (final RuntimeException ignored) {
+        return null;
+      }
+    }
     try {
       final Method get = processorSupplier.getClass().getMethod("get");
       final Object processor = get.invoke(processorSupplier);
@@ -133,6 +151,70 @@ public final class ProcessorOutputAnalyzer {
       return null;
     }
     return null;
+  }
+
+  private static Class<?> resolveProcessorClassFromSupplierBytecode(final Class<?> supplierClass) {
+    try (InputStream in = supplierClass.getResourceAsStream("/" + supplierClass.getName().replace('.', '/') + ".class")) {
+      if (in == null) {
+        return null;
+      }
+      final ClassReader reader = new ClassReader(in);
+      final ClassNode node = new ClassNode();
+      reader.accept(node, 0);
+      for (final MethodNode method : node.methods) {
+        if (!"get".equals(method.name) || method.desc == null) {
+          continue;
+        }
+        for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+          if (insn instanceof MethodInsnNode invoke
+              && Opcodes.INVOKESPECIAL == invoke.getOpcode()
+              && "<init>".equals(invoke.name)) {
+            final Class<?> candidate = loadProcessorCandidate(invoke.owner);
+            if (candidate != null) {
+              return candidate;
+            }
+          }
+          if (insn.getOpcode() == Opcodes.NEW) {
+            final Class<?> candidate = loadProcessorCandidate(
+                org.objectweb.asm.Type.getObjectType(((org.objectweb.asm.tree.TypeInsnNode) insn).desc).getClassName());
+            if (candidate != null) {
+              return candidate;
+            }
+          }
+        }
+      }
+    } catch (final Exception ignored) {
+      return null;
+    }
+    return null;
+  }
+
+  private static Class<?> loadProcessorCandidate(final String internalOrBinaryName) {
+    if (internalOrBinaryName == null || internalOrBinaryName.startsWith("org/apache/kafka/streams")) {
+      return null;
+    }
+    try {
+      final Class<?> candidate = Class.forName(internalOrBinaryName.replace('/', '.'));
+      if (implementsProcessorApi(candidate)) {
+        return candidate;
+      }
+    } catch (final ClassNotFoundException ignored) {
+      return null;
+    }
+    return null;
+  }
+
+  private static boolean implementsProcessorApi(final Class<?> type) {
+    for (final Class<?> iface : type.getInterfaces()) {
+      final String name = iface.getName();
+      if (name.startsWith("org.apache.kafka.streams.")
+          && (name.endsWith(".Processor") || name.endsWith(".ProcessorSupplier"))) {
+        return true;
+      }
+    }
+    return type.getSuperclass() != null
+        && type.getSuperclass() != Object.class
+        && implementsProcessorApi(type.getSuperclass());
   }
 
   static Set<String> outputFieldsFromProcessorClass(final Class<?> processorClass) {
@@ -197,6 +279,14 @@ public final class ProcessorOutputAnalyzer {
   }
 
   static Set<String> analyzeProcessMethod(final Class<?> processorClass) {
+    final MethodNode process = LambdaBytecodeInspector.findMethodNode(processorClass, "process", null);
+    if (process != null) {
+      final Set<String> fromBytecode =
+          LambdaBytecodeInspector.extractProjectionFields(process, processorClass.getClassLoader());
+      if (!fromBytecode.isEmpty()) {
+        return fromBytecode;
+      }
+    }
     try (InputStream in = processorClass.getResourceAsStream("/" + processorClass.getName().replace('.', '/') + ".class")) {
       if (in == null) {
         return Set.of();
@@ -209,45 +299,12 @@ public final class ProcessorOutputAnalyzer {
         if (!"process".equals(method.name)) {
           continue;
         }
-        fields.addAll(extractProjectedFields(method));
+        fields.addAll(LambdaBytecodeInspector.extractProjectionFields(method, processorClass.getClassLoader()));
       }
       return fields;
     } catch (final Exception e) {
       return Set.of();
     }
-  }
-
-  private static Set<String> extractProjectedFields(final MethodNode method) {
-    final LinkedHashSet<String> fields = new LinkedHashSet<>();
-    for (final AbstractInsnNode insn : method.instructions) {
-      if (insn instanceof MethodInsnNode invoke && invoke.getOpcode() == Opcodes.INVOKESPECIAL) {
-        final org.objectweb.asm.Type[] args = org.objectweb.asm.Type.getArgumentTypes(invoke.desc);
-        if ("<init>".equals(invoke.name) && args.length > 0) {
-          // Record-style value construction inside process().
-          continue;
-        }
-      }
-      if (!(insn instanceof MethodInsnNode invoke)) {
-        continue;
-      }
-      if (invoke.getOpcode() != Opcodes.INVOKEVIRTUAL
-          && invoke.getOpcode() != Opcodes.INVOKESPECIAL
-          && invoke.getOpcode() != Opcodes.INVOKEINTERFACE
-          && invoke.getOpcode() != Opcodes.INVOKESTATIC) {
-        continue;
-      }
-      final String name = invoke.name;
-      if (name == null || name.isEmpty() || IGNORED_METHODS.contains(name)) {
-        continue;
-      }
-      if (name.startsWith("get") && name.length() > 3) {
-        continue;
-      }
-      if (Character.isLowerCase(name.charAt(0)) && name.chars().allMatch(Character::isLetterOrDigit)) {
-        fields.add(name);
-      }
-    }
-    return fields;
   }
 
   private static SerializedLambda trySerializedLambda(final Object lambda) {
