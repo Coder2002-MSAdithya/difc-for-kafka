@@ -163,6 +163,7 @@ public class ProcessingPolicyDocument {
         private List<String> addedTags = new ArrayList<>();
         private List<String> removedTags = new ArrayList<>();
         private List<String> operators = new ArrayList<>();
+        private List<CallbackProjectionBinding> callbackProjections = new ArrayList<>();
 
         public String getEgressTopic() {
             return egressTopic;
@@ -204,6 +205,15 @@ public class ProcessingPolicyDocument {
             this.operators = operators == null ? new ArrayList<>() : operators;
         }
 
+        public List<CallbackProjectionBinding> getCallbackProjections() {
+            return callbackProjections;
+        }
+
+        public void setCallbackProjections(final List<CallbackProjectionBinding> callbackProjections) {
+            this.callbackProjections =
+                    callbackProjections == null ? new ArrayList<>() : callbackProjections;
+        }
+
         public boolean addsTag(final String tag) {
             return addedTags.contains(tag);
         }
@@ -220,6 +230,28 @@ public class ProcessingPolicyDocument {
                 }
             }
             return aggregators;
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class CallbackProjectionBinding {
+        private String operator;
+        private List<String> outputFields = new ArrayList<>();
+
+        public String getOperator() {
+            return operator;
+        }
+
+        public void setOperator(final String operator) {
+            this.operator = operator;
+        }
+
+        public List<String> getOutputFields() {
+            return outputFields;
+        }
+
+        public void setOutputFields(final List<String> outputFields) {
+            this.outputFields = outputFields == null ? new ArrayList<>() : outputFields;
         }
     }
 }

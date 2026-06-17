@@ -22,6 +22,9 @@ public final class ProcessingPolicyEnricher {
     if (policy == null) {
       return null;
     }
+    JugPipelineProjections.registerEgressProjections();
+    EgressProjectionRegistry.register(
+        "order-validations", Set.of("orderId", "checkType", "validationResult"));
     org.apache.kafka.security.agent.AppClientPolicyTracker.mergeInto(policy);
     if (policy.getPrincipal() != null && manifestSupplementEnabled()) {
       final ProcessingPolicyDocument manifest = manifestFor(policy.getPrincipal());
@@ -35,11 +38,12 @@ public final class ProcessingPolicyEnricher {
       }
     }
     applyEnrichment(policy);
+    ExternalConnectionTracker.mergeInto(policy);
     return policy;
   }
 
   private static boolean shouldApplyFullManifest(final AppProcessingPolicy policy) {
-    return policy.getGraph().getNodes().isEmpty();
+    return policy.getGraph().getNodes().isEmpty() && policy.getEgressPaths().isEmpty();
   }
 
   private static boolean manifestSupplementEnabled() {
@@ -142,6 +146,9 @@ public final class ProcessingPolicyEnricher {
       case "order-details-svc" -> PolicyManifestRegistry.orderDetailsValidator();
       case "email-svc" -> PolicyManifestRegistry.emailConsumer();
       case "validations-agg-svc" -> PolicyManifestRegistry.validationsAggregator();
+      case "stock-svc" -> PolicyManifestRegistry.stockRepublisher();
+      case "validation-svc" -> PolicyManifestRegistry.validationRepublisher();
+      case "payment-svc" -> PolicyManifestRegistry.paymentRepublisher();
       default -> null;
     };
   }
@@ -171,6 +178,7 @@ public final class ProcessingPolicyEnricher {
       path.setOperators(new ArrayList<>(binding.getOperators()));
       path.setDeclassifyTags(new ArrayList<>(binding.getRemovedTags()));
       path.setAddTags(new ArrayList<>(binding.getAddedTags()));
+      path.setCallbackProjections(manifestCallbackProjections(binding));
       mergeEgressPath(egressByTopic, path);
 
       final AppProcessingPolicy.SinkPolicy sink = new AppProcessingPolicy.SinkPolicy();
@@ -213,6 +221,23 @@ public final class ProcessingPolicyEnricher {
     merged.setDeclassifyTags(union(merged.getDeclassifyTags(), path.getDeclassifyTags()));
     merged.setAddTags(union(merged.getAddTags(), path.getAddTags()));
     merged.setCallbackProjections(mergeCallbackProjections(merged, path));
+  }
+
+  private static List<AppProcessingPolicy.OperatorCallbackProjection> manifestCallbackProjections(
+      final ProcessingPolicyDocument.SinkBinding binding) {
+    if (binding.getCallbackProjections().isEmpty()) {
+      return JugPipelineProjections.callbacksForOperators(binding.getOperators());
+    }
+    final List<AppProcessingPolicy.OperatorCallbackProjection> callbacks = new ArrayList<>();
+    for (final ProcessingPolicyDocument.CallbackProjectionBinding manifestCallback :
+        binding.getCallbackProjections()) {
+      final AppProcessingPolicy.OperatorCallbackProjection projection =
+          new AppProcessingPolicy.OperatorCallbackProjection();
+      projection.setOperator(manifestCallback.getOperator());
+      projection.setOutputFields(new ArrayList<>(manifestCallback.getOutputFields()));
+      callbacks.add(projection);
+    }
+    return callbacks;
   }
 
   private static List<String> unionOperators(final List<String> left, final List<String> right) {
@@ -305,7 +330,7 @@ public final class ProcessingPolicyEnricher {
       final String pathPrefix) {
     final List<String> relational = new ArrayList<>();
     for (final String operator : operators) {
-      if (ProcessingPolicyGraphHelper.isRelationalSanitizationOperator(operator)) {
+      if (isManifestRelationalOperator(operator)) {
         relational.add(operator);
       }
     }
@@ -367,6 +392,14 @@ public final class ProcessingPolicyEnricher {
     edge.setTo(to);
     edge.setLabel(label);
     graph.getEdges().add(edge);
+  }
+
+  private static boolean isManifestRelationalOperator(final String operator) {
+    if (operator == null || operator.isEmpty()) {
+      return false;
+    }
+    return ProcessingPolicyGraphHelper.isRelationalSanitizationOperator(operator)
+        || JugPipelineProjections.isPipelineProjectionOperator(operator);
   }
 
   private static List<String> union(final List<String> left, final List<String> right) {

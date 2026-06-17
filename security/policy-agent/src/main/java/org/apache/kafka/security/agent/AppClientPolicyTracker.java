@@ -1,6 +1,7 @@
 package org.apache.kafka.security.agent;
 
 import org.apache.kafka.security.agent.policy.AppProcessingPolicy;
+import org.apache.kafka.security.agent.policy.PolicyRefreshScheduler;
 import org.apache.kafka.security.agent.policy.ProcessingPolicyGraph;
 
 import java.lang.reflect.Method;
@@ -25,6 +26,8 @@ public final class AppClientPolicyTracker {
     private static final LinkedHashSet<String> CONSUMER_SOURCES = new LinkedHashSet<>();
     private static final List<ProducerSendBinding> PRODUCER_SENDS = new ArrayList<>();
     private static boolean restIngressObserved = false;
+    private static final ThreadLocal<AppProcessingPolicy.OperatorCallbackProjection> PENDING_PROJECTION =
+            new ThreadLocal<>();
 
     public static void clearStateForTests() {
         synchronized (LOCK) {
@@ -32,6 +35,22 @@ public final class AppClientPolicyTracker {
             CONSUMER_SOURCES.clear();
             PRODUCER_SENDS.clear();
             restIngressObserved = false;
+            PENDING_PROJECTION.remove();
+        }
+    }
+
+    public static void recordProjectionCallback(
+            final AppProcessingPolicy.OperatorCallbackProjection projection) {
+        if (projection == null || insideStreamsInternal()) {
+            return;
+        }
+        synchronized (LOCK) {
+            PENDING_PROJECTION.set(projection);
+            System.out.printf(
+                    "[POLICY][CLIENT] projection operator=%s outputFields=%s%n",
+                    projection.getOperator(),
+                    projection.getOutputFields());
+            PolicyRefreshScheduler.scheduleRefresh();
         }
     }
 
@@ -68,7 +87,8 @@ public final class AppClientPolicyTracker {
                 COMPONENTS.add("rest");
                 restIngressObserved = true;
             }
-            PRODUCER_SENDS.add(new ProducerSendBinding(topic, operators, addTags, declassifyTags));
+            PRODUCER_SENDS.add(new ProducerSendBinding(
+                    topic, operators, addTags, declassifyTags, takePendingProjectionCallback()));
             System.out.printf(
                     "[POLICY][CLIENT] producer.send topic=%s operators=%s addTags=%s declassifyTags=%s rest=%s%n",
                     topic,
@@ -76,6 +96,7 @@ public final class AppClientPolicyTracker {
                     addTags,
                     declassifyTags,
                     restIngress);
+            PolicyRefreshScheduler.scheduleRefresh();
         }
     }
 
@@ -91,6 +112,7 @@ public final class AppClientPolicyTracker {
             COMPONENTS.add("kafka-consumer");
             CONSUMER_SOURCES.addAll(topics);
             System.out.printf("[POLICY][CLIENT] consumer.subscribe topics=%s%n", topics);
+            PolicyRefreshScheduler.scheduleRefresh();
         }
     }
 
@@ -169,6 +191,9 @@ public final class AppClientPolicyTracker {
         path.setOperators(new ArrayList<>(send.operators()));
         path.setAddTags(new ArrayList<>(send.addTags()));
         path.setDeclassifyTags(new ArrayList<>(send.declassifyTags()));
+        if (send.projectionCallback() != null) {
+            appendProjectionOperator(path, send.projectionCallback());
+        }
         mergeEgressPath(egressByTopic, path);
 
         final AppProcessingPolicy.SinkPolicy sink = new AppProcessingPolicy.SinkPolicy();
@@ -178,9 +203,9 @@ public final class AppClientPolicyTracker {
         sinks.add(sink);
 
         String previous = COMPONENT_ID;
-        for (int i = 0; i < send.operators().size(); i++) {
+        for (int i = 0; i < path.getOperators().size(); i++) {
             final String opId = COMPONENT_ID + "_producer_op_" + i;
-            ensureGraphNode(graph, opId, "operator", send.operators().get(i) + "()", null);
+            ensureGraphNode(graph, opId, "operator", path.getOperators().get(i) + "()", null);
             ensureGraphEdge(graph, previous, opId, i == 0 ? "ingress" : "input");
             previous = opId;
         }
@@ -203,6 +228,56 @@ public final class AppClientPolicyTracker {
         merged.setOperators(union(merged.getOperators(), path.getOperators()));
         merged.setDeclassifyTags(union(merged.getDeclassifyTags(), path.getDeclassifyTags()));
         merged.setAddTags(union(merged.getAddTags(), path.getAddTags()));
+        merged.setCallbackProjections(mergeCallbackProjections(merged, path));
+    }
+
+    private static void appendProjectionOperator(
+            final AppProcessingPolicy.EgressPath path,
+            final AppProcessingPolicy.OperatorCallbackProjection projection) {
+        if (projection == null || projection.getOperator() == null) {
+            return;
+        }
+        final List<String> operators = new ArrayList<>(path.getOperators());
+        if (!operators.contains(projection.getOperator())) {
+            operators.add(projection.getOperator());
+        }
+        path.setOperators(operators);
+        final List<AppProcessingPolicy.OperatorCallbackProjection> callbacks = new ArrayList<>();
+        for (final String operator : operators) {
+            if (projection.getOperator().equals(operator)) {
+                callbacks.add(projection);
+            } else {
+                final AppProcessingPolicy.OperatorCallbackProjection empty =
+                        new AppProcessingPolicy.OperatorCallbackProjection();
+                empty.setOperator(operator);
+                callbacks.add(empty);
+            }
+        }
+        path.setCallbackProjections(callbacks);
+    }
+
+    private static AppProcessingPolicy.OperatorCallbackProjection takePendingProjectionCallback() {
+        synchronized (LOCK) {
+            final AppProcessingPolicy.OperatorCallbackProjection pending = PENDING_PROJECTION.get();
+            PENDING_PROJECTION.remove();
+            return pending;
+        }
+    }
+
+    private static List<AppProcessingPolicy.OperatorCallbackProjection> mergeCallbackProjections(
+            final AppProcessingPolicy.EgressPath left,
+            final AppProcessingPolicy.EgressPath right) {
+        if (right.getCallbackProjections().isEmpty()) {
+            return left.getCallbackProjections() == null
+                    ? new ArrayList<>()
+                    : new ArrayList<>(left.getCallbackProjections());
+        }
+        final List<AppProcessingPolicy.OperatorCallbackProjection> merged = new ArrayList<>();
+        if (left.getCallbackProjections() != null) {
+            merged.addAll(left.getCallbackProjections());
+        }
+        merged.addAll(right.getCallbackProjections());
+        return merged;
     }
 
     private static List<String> union(final List<String> left, final List<String> right) {
@@ -394,5 +469,6 @@ public final class AppClientPolicyTracker {
             String topic,
             List<String> operators,
             Set<String> addTags,
-            Set<String> declassifyTags) {}
+            Set<String> declassifyTags,
+            AppProcessingPolicy.OperatorCallbackProjection projectionCallback) {}
 }

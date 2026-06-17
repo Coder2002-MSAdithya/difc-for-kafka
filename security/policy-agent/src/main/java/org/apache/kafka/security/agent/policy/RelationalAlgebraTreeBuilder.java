@@ -16,15 +16,36 @@ public final class RelationalAlgebraTreeBuilder {
   }
 
   public static AppProcessingPolicy.RelationalAlgebraExpressionNode buildForEgress(
+      final AppProcessingPolicy policy,
+      final String sinkTopic) {
+    if (policy == null || policy.getGraph() == null || sinkTopic == null || sinkTopic.isEmpty()) {
+      return null;
+    }
+    final AppProcessingPolicy.EgressPath egress = egressPathForTopic(policy, sinkTopic);
+    return buildFromGraph(policy.getGraph(), sinkTopic, egress);
+  }
+
+  /** @deprecated use {@link #buildForEgress(AppProcessingPolicy, String)} */
+  @Deprecated
+  public static AppProcessingPolicy.RelationalAlgebraExpressionNode buildForEgress(
       final ProcessingPolicyGraph graph,
       final String sinkTopic) {
     if (graph == null || sinkTopic == null || sinkTopic.isEmpty()) {
       return null;
     }
-    final AppProcessingPolicy.RelationalAlgebraExpressionNode fromGraph =
-        buildFromGraph(graph, sinkTopic);
-    if (fromGraph != null) {
-      return fromGraph;
+    return buildFromGraph(graph, sinkTopic, null);
+  }
+
+  private static AppProcessingPolicy.EgressPath egressPathForTopic(
+      final AppProcessingPolicy policy,
+      final String sinkTopic) {
+    if (policy == null || policy.getEgressPaths() == null) {
+      return null;
+    }
+    for (final AppProcessingPolicy.EgressPath egress : policy.getEgressPaths()) {
+      if (sinkTopic.equals(egress.getTopic())) {
+        return egress;
+      }
     }
     return null;
   }
@@ -45,15 +66,126 @@ public final class RelationalAlgebraTreeBuilder {
         alignCallbacksToOperators(
             operators,
             egress.getCallbackProjections() == null ? List.of() : egress.getCallbackProjections());
+    final AppProcessingPolicy.RelationalAlgebraExpressionNode splitMerge =
+        buildSplitMergeFromEgressMetadata(
+            new ArrayList<>(ingressTopics), egress.getTopic(), operators, callbacks);
+    if (splitMerge != null) {
+      return splitMerge;
+    }
     if (ingressTopics.size() == 1) {
       return buildLinearTree(ingressTopics.iterator().next(), egress.getTopic(), operators, callbacks);
     }
     return buildJoinTree(new ArrayList<>(ingressTopics), egress.getTopic(), operators, callbacks);
   }
 
+  /**
+   * When egress metadata documents split → mapValues* → merge, synthesize a multi-branch RA tree
+   * even if branch stream nodes are not wired to split in the captured DSL graph.
+   */
+  public static AppProcessingPolicy.RelationalAlgebraExpressionNode buildSplitMergeFromEgressMetadata(
+      final List<String> ingressTopics,
+      final String sinkTopic,
+      final List<String> operators,
+      final List<AppProcessingPolicy.OperatorCallbackProjection> callbacks) {
+    if (ingressTopics.size() != 1 || operators == null || operators.isEmpty()) {
+      return null;
+    }
+    final List<String> normalized = new ArrayList<>();
+    for (final String raw : operators) {
+      normalized.add(RelationalAlgebraTreeSupport.normalizeOp(raw + "()"));
+    }
+    int splitIdx = -1;
+    int mergeIdx = -1;
+    for (int i = 0; i < normalized.size(); i++) {
+      if (splitIdx < 0 && ("split".equals(normalized.get(i)) || "branch".equals(normalized.get(i)))) {
+        splitIdx = i;
+      }
+      if (splitIdx >= 0 && "merge".equals(normalized.get(i))) {
+        mergeIdx = i;
+        break;
+      }
+    }
+    if (splitIdx < 0 || mergeIdx <= splitIdx) {
+      return null;
+    }
+
+    final List<String> prefixRaw = operators.subList(0, splitIdx);
+    final List<AppProcessingPolicy.OperatorCallbackProjection> prefixCallbacks =
+        prefixCallbacks(callbacks, operators, 0, splitIdx);
+    final AppProcessingPolicy.RelationalAlgebraExpressionNode prefixBody =
+        buildOperatorChain(ingressTopics.get(0), sinkTopic, prefixRaw, prefixCallbacks);
+
+    final AppProcessingPolicy.RelationalAlgebraExpressionNode merge =
+        RelationalAlgebraTreeSupport.operatorNode("merge", "∪", "union");
+
+    AppProcessingPolicy.OperatorCallbackProjection mapCallback = null;
+    int mapOperatorIndex = -1;
+    for (int i = splitIdx + 1; i < mergeIdx; i++) {
+      final String op = normalized.get(i);
+      if ("mapvalues".equals(op) || "process".equals(op)) {
+        mapOperatorIndex = i;
+        if (callbacks != null && i < callbacks.size()) {
+          mapCallback = callbacks.get(i);
+        }
+        break;
+      }
+    }
+
+    for (int branch = 0; branch < 2; branch++) {
+      AppProcessingPolicy.RelationalAlgebraExpressionNode branchRoot = prefixBody;
+      if (mapOperatorIndex >= 0) {
+        final String op = normalized.get(mapOperatorIndex);
+        final AppProcessingPolicy.RelationalAlgebraExpressionNode projection =
+            RelationalAlgebraTreeSupport.operatorNode(
+                op,
+                RelationalAlgebraTreeSupport.algebraSymbol(op),
+                RelationalAlgebraTreeSupport.operatorDescription(op, sinkTopic));
+        projection.getChildren().add(branchRoot);
+        if (mapCallback != null) {
+          applyCallbackAnalysis(projection, mapCallback);
+        } else {
+          applyCallbackOutputFields(projection, mapOperatorIndex, callbacks);
+        }
+        RelationalAlgebraTreeSupport.annotateOutputFields(projection, sinkTopic);
+        branchRoot = projection;
+      }
+      merge.getChildren().add(branchRoot);
+    }
+
+    applyCallbackOutputFields(merge, mergeIdx, callbacks);
+    RelationalAlgebraTreeSupport.annotateOutputFields(merge, sinkTopic);
+
+    AppProcessingPolicy.RelationalAlgebraExpressionNode body = merge;
+    body = wrapPostJoinOperators(
+        body, sinkTopic, normalized.subList(mergeIdx + 1, normalized.size()), callbacks, mergeIdx + 1);
+
+    final AppProcessingPolicy.RelationalAlgebraExpressionNode sink =
+        RelationalAlgebraTreeSupport.sinkNode(sinkTopic);
+    sink.getChildren().add(body);
+    RelationalAlgebraTreeSupport.annotateOutputFields(sink, sinkTopic);
+    return sink;
+  }
+
+  private static List<AppProcessingPolicy.OperatorCallbackProjection> prefixCallbacks(
+      final List<AppProcessingPolicy.OperatorCallbackProjection> callbacks,
+      final List<String> operators,
+      final int fromInclusive,
+      final int toExclusive) {
+    if (callbacks == null || callbacks.isEmpty()) {
+      return List.of();
+    }
+    final List<AppProcessingPolicy.OperatorCallbackProjection> aligned =
+        alignCallbacksToOperators(operators, callbacks);
+    if (fromInclusive >= toExclusive || fromInclusive >= aligned.size()) {
+      return List.of();
+    }
+    return new ArrayList<>(aligned.subList(fromInclusive, Math.min(toExclusive, aligned.size())));
+  }
+
   private static AppProcessingPolicy.RelationalAlgebraExpressionNode buildFromGraph(
       final ProcessingPolicyGraph graph,
-      final String sinkTopic) {
+      final String sinkTopic,
+      final AppProcessingPolicy.EgressPath egress) {
     final String sinkId = topicNodeId(graph, sinkTopic);
     if (sinkId == null) {
       return null;
@@ -74,7 +206,7 @@ public final class RelationalAlgebraTreeBuilder {
         RelationalAlgebraTreeSupport.sinkNode(sinkTopic);
     final Set<String> visiting = new LinkedHashSet<>();
     final AppProcessingPolicy.RelationalAlgebraExpressionNode body =
-        buildUpstream(writers.get(0), graph, reverse, sinkTopic, visiting);
+        buildUpstream(writers.get(0), graph, reverse, sinkTopic, visiting, egress);
     if (body == null) {
       return null;
     }
@@ -269,7 +401,8 @@ public final class RelationalAlgebraTreeBuilder {
       final ProcessingPolicyGraph graph,
       final Map<String, List<String>> reverse,
       final String sinkTopic,
-      final Set<String> visiting) {
+      final Set<String> visiting,
+      final AppProcessingPolicy.EgressPath egress) {
     if (nodeId == null || !visiting.add(nodeId)) {
       return null;
     }
@@ -286,10 +419,10 @@ public final class RelationalAlgebraTreeBuilder {
           result = RelationalAlgebraTreeSupport.scanNode(node.getTopic());
         }
       }
-      case "internalTopic" -> result = buildThroughInternal(nodeId, graph, reverse, sinkTopic, visiting);
-      case "stream" -> result = buildThroughStream(nodeId, graph, reverse, sinkTopic, visiting);
-      case "operator" -> result = buildOperator(nodeId, node, graph, reverse, sinkTopic, visiting);
-      default -> result = buildThroughStream(nodeId, graph, reverse, sinkTopic, visiting);
+      case "internalTopic" -> result = buildThroughInternal(nodeId, graph, reverse, sinkTopic, visiting, egress);
+      case "stream" -> result = buildThroughStream(nodeId, graph, reverse, sinkTopic, visiting, egress);
+      case "operator" -> result = buildOperator(nodeId, node, graph, reverse, sinkTopic, visiting, egress);
+      default -> result = buildThroughStream(nodeId, graph, reverse, sinkTopic, visiting, egress);
     }
     visiting.remove(nodeId);
     return result;
@@ -300,10 +433,11 @@ public final class RelationalAlgebraTreeBuilder {
       final ProcessingPolicyGraph graph,
       final Map<String, List<String>> reverse,
       final String sinkTopic,
-      final Set<String> visiting) {
+      final Set<String> visiting,
+      final AppProcessingPolicy.EgressPath egress) {
     for (final String pred : reverse.getOrDefault(nodeId, List.of())) {
       final AppProcessingPolicy.RelationalAlgebraExpressionNode up =
-          buildUpstream(pred, graph, reverse, sinkTopic, visiting);
+          buildUpstream(pred, graph, reverse, sinkTopic, visiting, egress);
       if (up != null) {
         return up;
       }
@@ -316,14 +450,15 @@ public final class RelationalAlgebraTreeBuilder {
       final ProcessingPolicyGraph graph,
       final Map<String, List<String>> reverse,
       final String sinkTopic,
-      final Set<String> visiting) {
+      final Set<String> visiting,
+      final AppProcessingPolicy.EgressPath egress) {
     final ProcessingPolicyGraph.GraphNode internalNode =
         ProcessingPolicyGraphHelper.nodeById(graph, nodeId);
     final String internalKind =
         internalNode == null ? "repartition" : internalNode.getInternalTopicKind();
     for (final String pred : reverse.getOrDefault(nodeId, List.of())) {
       final AppProcessingPolicy.RelationalAlgebraExpressionNode up =
-          buildUpstream(pred, graph, reverse, sinkTopic, visiting);
+          buildUpstream(pred, graph, reverse, sinkTopic, visiting, egress);
       if (up != null) {
         final AppProcessingPolicy.RelationalAlgebraExpressionNode wrapper;
         if ("changelog".equals(internalKind)) {
@@ -346,15 +481,16 @@ public final class RelationalAlgebraTreeBuilder {
       final ProcessingPolicyGraph graph,
       final Map<String, List<String>> reverse,
       final String sinkTopic,
-      final Set<String> visiting) {
+      final Set<String> visiting,
+      final AppProcessingPolicy.EgressPath egress) {
     final String op = RelationalAlgebraTreeSupport.normalizeOp(node.getLabel());
     if (RelationalAlgebraTreeSupport.isJoinOp(op)) {
-      return buildJoin(nodeId, op, graph, reverse, sinkTopic, visiting);
+      return buildJoin(nodeId, op, graph, reverse, sinkTopic, visiting, egress);
     }
     if (RelationalAlgebraTreeSupport.isPassthroughOp(op)) {
       for (final String pred : reverse.getOrDefault(nodeId, List.of())) {
         final AppProcessingPolicy.RelationalAlgebraExpressionNode child =
-            buildUpstream(pred, graph, reverse, sinkTopic, visiting);
+            buildUpstream(pred, graph, reverse, sinkTopic, visiting, egress);
         if (child != null) {
           return child;
         }
@@ -362,7 +498,10 @@ public final class RelationalAlgebraTreeBuilder {
       return null;
     }
     if ("merge".equals(op)) {
-      return buildMerge(nodeId, graph, reverse, sinkTopic, visiting);
+      return buildMerge(nodeId, graph, reverse, sinkTopic, visiting, egress);
+    }
+    if ("split".equals(op) || "branch".equals(op)) {
+      return buildSplit(nodeId, op, graph, reverse, sinkTopic, visiting, egress);
     }
 
     final AppProcessingPolicy.RelationalAlgebraExpressionNode unary =
@@ -372,12 +511,13 @@ public final class RelationalAlgebraTreeBuilder {
             RelationalAlgebraTreeSupport.operatorDescription(op, sinkTopic));
     for (final String pred : reverse.getOrDefault(nodeId, List.of())) {
       final AppProcessingPolicy.RelationalAlgebraExpressionNode child =
-          buildUpstream(pred, graph, reverse, sinkTopic, visiting);
+          buildUpstream(pred, graph, reverse, sinkTopic, visiting, egress);
       if (child != null) {
         unary.getChildren().add(child);
         break;
       }
     }
+    applyEgressCallback(egress, op, unary);
     RelationalAlgebraTreeSupport.annotateOutputFields(unary, sinkTopic);
     return unary;
   }
@@ -388,7 +528,8 @@ public final class RelationalAlgebraTreeBuilder {
       final ProcessingPolicyGraph graph,
       final Map<String, List<String>> reverse,
       final String sinkTopic,
-      final Set<String> visiting) {
+      final Set<String> visiting,
+      final AppProcessingPolicy.EgressPath egress) {
     final AppProcessingPolicy.RelationalAlgebraExpressionNode join =
         RelationalAlgebraTreeSupport.operatorNode(op, "⋈", "stream–table join");
     final List<String> leftBranch = new ArrayList<>();
@@ -408,14 +549,14 @@ public final class RelationalAlgebraTreeBuilder {
     }
     for (final String pred : leftBranch) {
       final AppProcessingPolicy.RelationalAlgebraExpressionNode child =
-          buildUpstream(pred, graph, reverse, sinkTopic, new LinkedHashSet<>(visiting));
+          buildUpstream(pred, graph, reverse, sinkTopic, new LinkedHashSet<>(visiting), egress);
       if (child != null) {
         join.getChildren().add(child);
       }
     }
     for (final String pred : rightBranch) {
       final AppProcessingPolicy.RelationalAlgebraExpressionNode child =
-          buildUpstream(pred, graph, reverse, sinkTopic, new LinkedHashSet<>(visiting));
+          buildUpstream(pred, graph, reverse, sinkTopic, new LinkedHashSet<>(visiting), egress);
       if (child != null) {
         join.getChildren().add(child);
       }
@@ -423,8 +564,106 @@ public final class RelationalAlgebraTreeBuilder {
     if (join.getChildren().isEmpty()) {
       return null;
     }
+    applyEgressCallback(egress, op, join);
     RelationalAlgebraTreeSupport.annotateOutputFields(join, sinkTopic);
     return join;
+  }
+
+  private static AppProcessingPolicy.RelationalAlgebraExpressionNode buildSplit(
+      final String nodeId,
+      final String op,
+      final ProcessingPolicyGraph graph,
+      final Map<String, List<String>> reverse,
+      final String sinkTopic,
+      final Set<String> visiting,
+      final AppProcessingPolicy.EgressPath egress) {
+    final AppProcessingPolicy.RelationalAlgebraExpressionNode split =
+        RelationalAlgebraTreeSupport.operatorNode(op, "σ∪", "split branches");
+    for (final String pred : reverse.getOrDefault(nodeId, List.of())) {
+      final AppProcessingPolicy.RelationalAlgebraExpressionNode child =
+          buildUpstream(pred, graph, reverse, sinkTopic, visiting, egress);
+      if (child != null) {
+        split.getChildren().add(child);
+        break;
+      }
+    }
+    if (split.getChildren().isEmpty()) {
+      return null;
+    }
+    applyEgressCallback(egress, op, split);
+    RelationalAlgebraTreeSupport.annotateOutputFields(split, sinkTopic);
+    return split;
+  }
+
+  /**
+   * Re-apply egress callback projections onto an existing graph tree and copy narrowed output
+   * fields from a metadata tree without replacing branching topology.
+   */
+  public static void overlaySanitizationFromMetadata(
+      final AppProcessingPolicy.RelationalAlgebraExpressionNode graphTree,
+      final AppProcessingPolicy.EgressPath egress,
+      final AppProcessingPolicy.RelationalAlgebraExpressionNode metadataTree) {
+    if (graphTree == null || egress == null) {
+      return;
+    }
+    if (egress.getCallbackProjections() != null) {
+      for (final AppProcessingPolicy.OperatorCallbackProjection callback : egress.getCallbackProjections()) {
+        overlayCallbackOnMatchingOperators(graphTree, callback);
+      }
+    }
+    if (metadataTree != null) {
+      overlayOutputFieldsFromMetadata(graphTree, metadataTree);
+    }
+    if (egress.getTopic() != null) {
+      RelationalAlgebraTreeSupport.annotateOutputFields(graphTree, egress.getTopic());
+    }
+  }
+
+  private static void overlayCallbackOnMatchingOperators(
+      final AppProcessingPolicy.RelationalAlgebraExpressionNode node,
+      final AppProcessingPolicy.OperatorCallbackProjection callback) {
+    if (node == null || callback == null || callback.getOperator() == null) {
+      return;
+    }
+    if ("operator".equals(node.getKind())) {
+      final String normalized = RelationalAlgebraTreeSupport.normalizeOp(node.getTopic() + "()");
+      final String callbackOp = RelationalAlgebraTreeSupport.normalizeOp(callback.getOperator() + "()");
+      if (normalized.equals(callbackOp)) {
+        applyCallbackAnalysis(node, callback);
+      }
+    }
+    for (final AppProcessingPolicy.RelationalAlgebraExpressionNode child : node.getChildren()) {
+      overlayCallbackOnMatchingOperators(child, callback);
+    }
+  }
+
+  private static void overlayOutputFieldsFromMetadata(
+      final AppProcessingPolicy.RelationalAlgebraExpressionNode graphNode,
+      final AppProcessingPolicy.RelationalAlgebraExpressionNode metadataNode) {
+    if (graphNode == null || metadataNode == null) {
+      return;
+    }
+    if ("operator".equals(graphNode.getKind())
+        && "operator".equals(metadataNode.getKind())
+        && graphNode.getTopic() != null
+        && graphNode.getTopic().equals(metadataNode.getTopic())
+        && graphNode.getOutputFields().isEmpty()
+        && !metadataNode.getOutputFields().isEmpty()) {
+      graphNode.setOutputFields(new ArrayList<>(metadataNode.getOutputFields()));
+    }
+    if (!metadataNode.getSelectionExpression().isEmpty() && graphNode.getSelectionExpression().isEmpty()) {
+      graphNode.setSelectionExpression(metadataNode.getSelectionExpression());
+    }
+    if (graphNode.getSelectionFields().isEmpty() && !metadataNode.getSelectionFields().isEmpty()) {
+      graphNode.setSelectionFields(new ArrayList<>(metadataNode.getSelectionFields()));
+    }
+    if (graphNode.getKeyFields().isEmpty() && !metadataNode.getKeyFields().isEmpty()) {
+      graphNode.setKeyFields(new ArrayList<>(metadataNode.getKeyFields()));
+    }
+    final int childCount = Math.min(graphNode.getChildren().size(), metadataNode.getChildren().size());
+    for (int i = 0; i < childCount; i++) {
+      overlayOutputFieldsFromMetadata(graphNode.getChildren().get(i), metadataNode.getChildren().get(i));
+    }
   }
 
   private static AppProcessingPolicy.RelationalAlgebraExpressionNode buildMerge(
@@ -432,12 +671,13 @@ public final class RelationalAlgebraTreeBuilder {
       final ProcessingPolicyGraph graph,
       final Map<String, List<String>> reverse,
       final String sinkTopic,
-      final Set<String> visiting) {
+      final Set<String> visiting,
+      final AppProcessingPolicy.EgressPath egress) {
     final AppProcessingPolicy.RelationalAlgebraExpressionNode merge =
         RelationalAlgebraTreeSupport.operatorNode("merge", "∪", "union");
     for (final String pred : reverse.getOrDefault(nodeId, List.of())) {
       final AppProcessingPolicy.RelationalAlgebraExpressionNode child =
-          buildUpstream(pred, graph, reverse, sinkTopic, new LinkedHashSet<>(visiting));
+          buildUpstream(pred, graph, reverse, sinkTopic, new LinkedHashSet<>(visiting), egress);
       if (child != null) {
         merge.getChildren().add(child);
       }
@@ -445,8 +685,28 @@ public final class RelationalAlgebraTreeBuilder {
     if (merge.getChildren().isEmpty()) {
       return null;
     }
+    applyEgressCallback(egress, "merge", merge);
     RelationalAlgebraTreeSupport.annotateOutputFields(merge, sinkTopic);
     return merge;
+  }
+
+  private static void applyEgressCallback(
+      final AppProcessingPolicy.EgressPath egress,
+      final String op,
+      final AppProcessingPolicy.RelationalAlgebraExpressionNode node) {
+    if (egress == null || egress.getCallbackProjections() == null || node == null) {
+      return;
+    }
+    final String normalized = RelationalAlgebraTreeSupport.normalizeOp(op + "()");
+    for (final AppProcessingPolicy.OperatorCallbackProjection callback : egress.getCallbackProjections()) {
+      if (callback.getOperator() == null) {
+        continue;
+      }
+      if (normalized.equals(RelationalAlgebraTreeSupport.normalizeOp(callback.getOperator() + "()"))) {
+        applyCallbackAnalysis(node, callback);
+        return;
+      }
+    }
   }
 
   private static String edgeLabel(

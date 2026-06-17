@@ -415,25 +415,7 @@ public final class DslProcessingPolicyTracker
                 final AppProcessingPolicy policy =
                         mapper.readValue(preEnrichCanonical, AppProcessingPolicy.class);
                 ProcessingPolicyEnricher.enrich(policy);
-                final String enrichedAggregationJson =
-                        mapper.writeValueAsString(policy.getAggregationAnalysis());
-                final String relationalAlgebraAnalysisJson =
-                        mapper.writeValueAsString(policy.getRelationalAlgebraAnalysis());
-
-                final String canonical = PolicyAttestationSigner.buildCanonicalPolicyJson(
-                        2,
-                        generatedAt,
-                        topologyDigest,
-                        principal,
-                        service,
-                        componentsJson,
-                        sourcesJson,
-                        aggregationsJson,
-                        sinksJson,
-                        egressPathsJson,
-                        graphJson,
-                        enrichedAggregationJson,
-                        relationalAlgebraAnalysisJson);
+                final String canonical = mapper.writeValueAsString(policy);
 
                 final String pathProp = System.getProperty(JSON_PATH_PROP);
                 if (pathProp == null || pathProp.isEmpty())

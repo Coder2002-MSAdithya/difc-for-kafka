@@ -139,7 +139,8 @@ public final class SocketPolicyBootstrap {
 
     /**
      * Microservices such as OrdersService combine an app-level {@code KafkaProducer} (REST ingress)
-     * with a {@code KafkaStreams} runtime in one JVM.
+     * with a {@code KafkaStreams} runtime in one JVM. Pipeline republishers (stock, validation, payment)
+     * combine a {@code KafkaConsumer} with a transactional {@code KafkaProducer} in one JVM.
      */
     private static boolean isAllowedAdditionalClientType(final KafkaClientType type)
     {
@@ -148,6 +149,14 @@ public final class SocketPolicyBootstrap {
             return true;
         }
         if (type == KafkaClientType.STREAMS && REGISTERED_CLIENT_TYPES.contains(KafkaClientType.PRODUCER))
+        {
+            return true;
+        }
+        if (type == KafkaClientType.PRODUCER && REGISTERED_CLIENT_TYPES.contains(KafkaClientType.CONSUMER))
+        {
+            return true;
+        }
+        if (type == KafkaClientType.CONSUMER && REGISTERED_CLIENT_TYPES.contains(KafkaClientType.PRODUCER))
         {
             return true;
         }
@@ -186,15 +195,62 @@ public final class SocketPolicyBootstrap {
         return;
     }
 
-    if (!isNetworkEnforcementEnabled())
+    if (!isSocketConnectCausedByTrustedSignedKafkaApi())
     {
+        recordExternalConnect(addr);
+        if (isNetworkEnforcementEnabled() && !isExternalConnectAllowed(addr))
+        {
+            failStop("[POLICY] Unauthorized network access to " + addr
+                    + " (declare via -Dpolicy.agent.allowed.external.hosts=host:port[,...])");
+        }
         return;
     }
+    }
 
-    if (!isSocketConnectCausedByTrustedSignedKafkaApi())
-        {
-            failStop("[POLICY] Unauthorized network access to " + addr);
+    private static void recordExternalConnect(final InetSocketAddress addr) {
+        invokeAgentStatic(
+                "org.apache.kafka.security.agent.policy.ExternalConnectionTracker",
+                "recordConnect",
+                new Class<?>[] {InetSocketAddress.class},
+                addr);
+    }
+
+    private static boolean isExternalConnectAllowed(final InetSocketAddress addr) {
+        final Object result =
+                invokeAgentStatic(
+                        "org.apache.kafka.security.agent.policy.ExternalConnectionAllowlist",
+                        "isAllowed",
+                        new Class<?>[] {InetSocketAddress.class},
+                        addr);
+        return result instanceof Boolean && (Boolean) result;
+    }
+
+    private static Object invokeAgentStatic(
+            final String className,
+            final String methodName,
+            final Class<?>[] paramTypes,
+            final Object... args) {
+        try {
+            final Class<?> type = Class.forName(className, true, agentPolicyClassLoader());
+            return type.getMethod(methodName, paramTypes).invoke(null, args);
+        } catch (ReflectiveOperationException ignored) {
+            return null;
         }
+    }
+
+    private static ClassLoader agentPolicyClassLoader() {
+        try {
+            return Class.forName("org.apache.kafka.security.agent.PolicyAgent")
+                    .getClassLoader();
+        } catch (ClassNotFoundException ignored) {
+            return Thread.currentThread().getContextClassLoader();
+        }
+    }
+
+    /** Exposed for {@link org.apache.kafka.security.agent.policy.ExternalConnectionTracker}. */
+    public static boolean isTrustedKafkaConnectStack()
+    {
+        return isSocketConnectCausedByTrustedSignedKafkaApi();
     }
 
     private static boolean isSocketConnectCausedByTrustedSignedKafkaApi()

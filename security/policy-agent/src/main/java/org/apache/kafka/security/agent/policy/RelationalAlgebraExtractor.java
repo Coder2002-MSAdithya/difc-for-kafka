@@ -27,17 +27,11 @@ public final class RelationalAlgebraExtractor {
       if (sinkTopic == null || sinkTopic.isEmpty()) {
         continue;
       }
-      final AppProcessingPolicy.RelationalAlgebraExpressionNode tree =
-          RelationalAlgebraTreeBuilder.buildForEgress(policy.getGraph(), sinkTopic);
-      final boolean hasCallbackProjections =
-          egress.getCallbackProjections() != null && !egress.getCallbackProjections().isEmpty();
-      AppProcessingPolicy.RelationalAlgebraExpressionNode resolved = null;
-      if (hasCallbackProjections) {
-        resolved = RelationalAlgebraTreeBuilder.buildFromEgressMetadata(policy, egress);
-      }
+      final AppProcessingPolicy.RelationalAlgebraExpressionNode graphTree =
+          RelationalAlgebraTreeBuilder.buildForEgress(policy, sinkTopic);
+      AppProcessingPolicy.RelationalAlgebraExpressionNode resolved = graphTree;
       if (resolved == null) {
-        resolved =
-            tree != null ? tree : RelationalAlgebraTreeBuilder.buildFromEgressMetadata(policy, egress);
+        resolved = RelationalAlgebraTreeBuilder.buildFromEgressMetadata(policy, egress);
       }
       final Set<String> expectedIngress =
           ProcessingPolicyGraphHelper.ingressTopicsForEgressPath(policy, egress);
@@ -61,6 +55,46 @@ public final class RelationalAlgebraExtractor {
       if (resolved == null) {
         continue;
       }
+      if (RelationalAlgebraTreeSupport.mergeTopologyCollapsed(resolved, policy, egress)) {
+        List<String> operators =
+            PolicyManifestRegistry.manifestOperatorsFor(policy.getPrincipal(), sinkTopic);
+        if (operators.isEmpty()) {
+          operators = egress.getOperators() == null ? List.of() : egress.getOperators();
+        }
+        List<AppProcessingPolicy.OperatorCallbackProjection> callbacks =
+            egress.getCallbackProjections() == null ? List.of() : egress.getCallbackProjections();
+        final List<AppProcessingPolicy.OperatorCallbackProjection> manifestCallbacks =
+            PolicyManifestRegistry.manifestCallbackProjectionsFor(policy.getPrincipal(), sinkTopic);
+        if (!manifestCallbacks.isEmpty()) {
+          callbacks = manifestCallbacks;
+        }
+        final Set<String> ingressTopics =
+            ProcessingPolicyGraphHelper.ingressTopicsForEgressPath(policy, egress);
+        final AppProcessingPolicy.RelationalAlgebraExpressionNode splitMerge =
+            RelationalAlgebraTreeBuilder.buildSplitMergeFromEgressMetadata(
+                new ArrayList<>(ingressTopics),
+                sinkTopic,
+                operators,
+                RelationalAlgebraTreeBuilder.alignCallbacksToOperators(operators, callbacks));
+        if (splitMerge != null) {
+          resolved = splitMerge;
+        }
+      }
+      final AppProcessingPolicy.RelationalAlgebraExpressionNode metadataTree =
+          RelationalAlgebraTreeBuilder.buildFromEgressMetadata(policy, egress);
+      if (metadataTree != null && graphMissingSanitizationOperators(resolved, egress)) {
+        if (RelationalAlgebraTreeSupport.hasBranchingTopology(resolved)) {
+          RelationalAlgebraTreeBuilder.overlaySanitizationFromMetadata(resolved, egress, metadataTree);
+        } else {
+          resolved = metadataTree;
+        }
+      } else if (metadataTree != null && shouldPreferMetadataTree(policy, egress, resolved, metadataTree)) {
+        if (RelationalAlgebraTreeSupport.hasBranchingTopology(resolved)) {
+          RelationalAlgebraTreeBuilder.overlaySanitizationFromMetadata(resolved, egress, metadataTree);
+        } else {
+          resolved = metadataTree;
+        }
+      }
       paths.add(buildPathFromTree(policy, sinkTopic, resolved));
     }
     analysis.setProcessingPaths(paths);
@@ -68,6 +102,88 @@ public final class RelationalAlgebraExtractor {
     analysis.setRepartitionTopicCount(countInternalTopics(policy.getGraph(), "repartition"));
     analysis.setChangelogTopicCount(countInternalTopics(policy.getGraph(), "changelog"));
     return analysis;
+  }
+
+  private static boolean graphMissingSanitizationOperators(
+      final AppProcessingPolicy.RelationalAlgebraExpressionNode graphTree,
+      final AppProcessingPolicy.EgressPath egress) {
+    if (graphTree == null || egress == null || egress.getCallbackProjections() == null) {
+      return false;
+    }
+    for (final AppProcessingPolicy.OperatorCallbackProjection callback : egress.getCallbackProjections()) {
+      if (callback.getOperator() == null) {
+        continue;
+      }
+      final boolean documentsSanitization =
+          (callback.getOutputFields() != null && !callback.getOutputFields().isEmpty())
+              || (callback.getSelectionFields() != null && !callback.getSelectionFields().isEmpty())
+              || (callback.getSelectionExpression() != null && !callback.getSelectionExpression().isEmpty());
+      if (!documentsSanitization) {
+        continue;
+      }
+      final String op = RelationalAlgebraTreeSupport.normalizeOp(callback.getOperator() + "()");
+      if (!RelationalAlgebraTreeSupport.treeContainsOperator(graphTree, op)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Prefer egress-metadata trees when the graph-only plan retains order-sensitive fields but
+   * callbacks/declassify on the egress path document a narrowing projection (e.g. Fraud mapValues).
+   */
+  private static boolean shouldPreferMetadataTree(
+      final AppProcessingPolicy policy,
+      final AppProcessingPolicy.EgressPath egress,
+      final AppProcessingPolicy.RelationalAlgebraExpressionNode graphTree,
+      final AppProcessingPolicy.RelationalAlgebraExpressionNode metadataTree) {
+    if (egress == null || egress.getTopic() == null || graphTree == null || metadataTree == null) {
+      return false;
+    }
+    final String sinkTopic = egress.getTopic();
+    final Set<String> graphOut = RelationalAlgebraTreeSupport.evaluateOutputFields(graphTree, sinkTopic);
+    final Set<String> metaOut = RelationalAlgebraTreeSupport.evaluateOutputFields(metadataTree, sinkTopic);
+    final Set<String> graphOrderSensitive = new LinkedHashSet<>(graphOut);
+    graphOrderSensitive.retainAll(TopicSchemaCatalog.sensitiveOrderFields());
+    final Set<String> metaOrderSensitive = new LinkedHashSet<>(metaOut);
+    metaOrderSensitive.retainAll(TopicSchemaCatalog.sensitiveOrderFields());
+    if (!graphOrderSensitive.isEmpty() && metaOrderSensitive.isEmpty() && !metaOut.isEmpty()) {
+      return true;
+    }
+    if (egress.getDeclassifyTags() != null
+        && !egress.getDeclassifyTags().isEmpty()
+        && egressDocumentsSanitizationOperators(egress)
+        && !graphOrderSensitive.isEmpty()
+        && metaOrderSensitive.isEmpty()) {
+      return true;
+    }
+    return false;
+  }
+
+  private static boolean egressDocumentsSanitizationOperators(
+      final AppProcessingPolicy.EgressPath egress) {
+    if (egress.getCallbackProjections() != null) {
+      for (final AppProcessingPolicy.OperatorCallbackProjection callback : egress.getCallbackProjections()) {
+        if (callback.getOutputFields() != null && !callback.getOutputFields().isEmpty()) {
+          return true;
+        }
+      }
+    }
+    if (egress.getOperators() == null) {
+      return false;
+    }
+    for (final String operator : egress.getOperators()) {
+      final String normalized = operator == null ? "" : operator.toLowerCase(java.util.Locale.ROOT);
+      if (normalized.contains("mapvalues")
+          || normalized.contains("map")
+          || normalized.contains("filter")
+          || normalized.contains("process")
+          || normalized.contains("aggregate")) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private static AppProcessingPolicy.ProcessingPathAnalysis buildPathFromTree(

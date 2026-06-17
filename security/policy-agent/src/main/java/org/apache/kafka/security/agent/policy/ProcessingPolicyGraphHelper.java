@@ -74,29 +74,52 @@ public final class ProcessingPolicyGraphHelper {
           "split",
           "declassifytags",
           "addtags",
-          "to");
+          "to",
+          "forstockcheck",
+          "forvalidation",
+          "forbilling");
 
   private ProcessingPolicyGraphHelper() {
   }
 
   /**
-   * Input topics from which the app reads grantor-tagged data (sources, egress ingress, graph).
+   * Input topics from which the app reads grantor-tagged data (sources, egress ingress, graph,
+   * relational-algebra ingress).
    */
   public static Set<String> consumedTopics(
       final AppProcessingPolicy policy,
       final Set<String> grantorTopics) {
-    final Set<String> allIngress = new LinkedHashSet<>(policy.getSources());
-    for (final AppProcessingPolicy.EgressPath path : policy.getEgressPaths()) {
-      allIngress.addAll(path.getIngressTopics());
-      allIngress.addAll(deriveIngressTopicsForEgress(path.getTopic(), policy.getGraph()));
-    }
     final Set<String> consumed = new LinkedHashSet<>();
-    for (final String topic : allIngress) {
+    for (final String topic : allIngressTopics(policy)) {
       if (grantorTopics.contains(topic)) {
         consumed.add(topic);
       }
     }
     return consumed;
+  }
+
+  /** All ingress topics declared by runtime capture, manifest, and relational-algebra analysis. */
+  public static Set<String> allIngressTopics(final AppProcessingPolicy policy) {
+    if (policy == null) {
+      return Set.of();
+    }
+    final Set<String> allIngress = new LinkedHashSet<>(policy.getSources());
+    for (final AppProcessingPolicy.EgressPath path : policy.getEgressPaths()) {
+      allIngress.addAll(path.getIngressTopics());
+      if (policy.getGraph() != null) {
+        allIngress.addAll(deriveIngressTopicsForEgress(path.getTopic(), policy.getGraph()));
+      }
+    }
+    if (policy.getRelationalAlgebraAnalysis() != null) {
+      for (final AppProcessingPolicy.ProcessingPathAnalysis path :
+          policy.getRelationalAlgebraAnalysis().getProcessingPaths()) {
+        if (path.getIngressTopic() != null && !path.getIngressTopic().isEmpty()) {
+          allIngress.add(path.getIngressTopic());
+        }
+        allIngress.addAll(path.getIngressTopics());
+      }
+    }
+    return allIngress;
   }
 
   public static boolean isProcessingOperator(final String operator) {
@@ -712,7 +735,7 @@ public final class ProcessingPolicyGraphHelper {
     analysis.setMultiSourceEgressPaths(multiSourceEgressPaths);
     analysis.setSanitizationOperatorCount(sanitizationOperatorCount);
     analysis.setTableSourceCount(tableSourceCount);
-    analysis.setConsumedGrantorTopics(new ArrayList<>(policy.getSources()));
+    analysis.setConsumedGrantorTopics(new ArrayList<>(allIngressTopics(policy)));
     analysis.setTotalAggregationOperators(
         operatorCounts.entrySet().stream()
             .filter(e -> AGGREGATION_OPERATORS.contains(e.getKey()) || BRANCH_OPERATORS.contains(e.getKey()))

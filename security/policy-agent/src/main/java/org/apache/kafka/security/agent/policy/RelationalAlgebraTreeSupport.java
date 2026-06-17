@@ -71,7 +71,28 @@ public final class RelationalAlgebraTreeSupport {
     if (node.getChildren().isEmpty()) {
       return TopicSchemaCatalog.copyFields(TopicSchemaResolver.valueFieldsForTopic(sinkTopic));
     }
-    return evaluateOutputFields(node.getChildren().get(0), sinkTopic);
+    final Set<String> pipelineFields = evaluateOutputFields(node.getChildren().get(0), sinkTopic);
+    if (schemaNarrowingEgress(sinkTopic, pipelineFields)) {
+      return TopicSchemaCatalog.copyFields(TopicSchemaResolver.valueFieldsForTopic(sinkTopic));
+    }
+    return pipelineFields;
+  }
+
+  private static boolean schemaNarrowingEgress(
+      final String sinkTopic,
+      final Set<String> pipelineFields) {
+    if (!TopicSchemaCatalog.isKnownTopic(sinkTopic) || pipelineFields.isEmpty()) {
+      return false;
+    }
+    final Set<String> sinkSchema = TopicSchemaResolver.valueFieldsForTopic(sinkTopic);
+    if (sinkSchema.isEmpty() || sinkSchema.equals(pipelineFields)) {
+      return false;
+    }
+    final Set<String> retainedOrderSensitive = new LinkedHashSet<>(pipelineFields);
+    retainedOrderSensitive.retainAll(TopicSchemaCatalog.sensitiveOrderFields());
+    final Set<String> sinkOrderSensitive = new LinkedHashSet<>(sinkSchema);
+    sinkOrderSensitive.retainAll(TopicSchemaCatalog.sensitiveOrderFields());
+    return !retainedOrderSensitive.isEmpty() && sinkOrderSensitive.isEmpty();
   }
 
   private static Set<String> evaluateOperatorOutput(
@@ -93,7 +114,8 @@ public final class RelationalAlgebraTreeSupport {
       return merged;
     }
     if (Set.of("mapvalues", "map", "flatmapvalues", "flatmap", "transform", "transformvalues", "process")
-        .contains(op)) {
+        .contains(op)
+        || JugPipelineProjections.isPipelineProjectionOperatorNormalized(op)) {
       if (!node.getOutputFields().isEmpty()) {
         return new LinkedHashSet<>(node.getOutputFields());
       }
@@ -204,16 +226,150 @@ public final class RelationalAlgebraTreeSupport {
     if (node == null) {
       return "";
     }
+    final List<String> parts = new ArrayList<>();
     if (node.getSelectionExpression() != null && !node.getSelectionExpression().isEmpty()) {
-      return node.getSelectionExpression();
-    }
-    if (node.getSelectionFields() != null && !node.getSelectionFields().isEmpty()) {
-      return String.join(" ∧ ", node.getSelectionFields());
+      parts.add("σ:" + node.getSelectionExpression());
+    } else if (node.getSelectionFields() != null && !node.getSelectionFields().isEmpty()) {
+      parts.add("σ:" + String.join(" ∧ ", node.getSelectionFields()));
     }
     if (node.getKeyFields() != null && !node.getKeyFields().isEmpty()) {
-      return "key:" + String.join(",", node.getKeyFields());
+      parts.add("key:" + String.join(",", node.getKeyFields()));
     }
-    return "";
+    if (node.getOutputFields() != null && !node.getOutputFields().isEmpty()) {
+      final String op = node.getTopic() == null ? "" : node.getTopic();
+      if (Set.of("mapvalues", "map", "flatmapvalues", "flatmap", "transform", "transformvalues", "process",
+              "forstockcheck", "forvalidation", "forbilling", "selectkey")
+          .contains(op)) {
+        parts.add("π:" + String.join(", ", node.getOutputFields()));
+      }
+    }
+    return String.join("; ", parts);
+  }
+
+  /** True when the plan has split/merge/join fan-out captured from the processing graph. */
+  public static boolean hasBranchingTopology(final AppProcessingPolicy.RelationalAlgebraExpressionNode root) {
+    return countBranchingOperators(root) > 0;
+  }
+
+  public static boolean mergeTopologyCollapsed(
+      final AppProcessingPolicy.RelationalAlgebraExpressionNode root,
+      final AppProcessingPolicy policy,
+      final AppProcessingPolicy.EgressPath egress) {
+    if (root == null || egress == null) {
+      return false;
+    }
+    if (!graphDocumentsSplitMerge(policy) && !egressDocumentsSplitMerge(egress)) {
+      return false;
+    }
+    return maxMergeChildScans(root) < 2;
+  }
+
+  private static boolean egressDocumentsSplitMerge(final AppProcessingPolicy.EgressPath egress) {
+    if (egress.getOperators() == null) {
+      return false;
+    }
+    boolean hasSplit = false;
+    boolean hasMerge = false;
+    for (final String raw : egress.getOperators()) {
+      final String op = normalizeOp(raw + "()");
+      if ("split".equals(op) || "branch".equals(op)) {
+        hasSplit = true;
+      }
+      if ("merge".equals(op)) {
+        hasMerge = true;
+      }
+    }
+    return hasSplit && hasMerge;
+  }
+
+  private static boolean graphDocumentsSplitMerge(final AppProcessingPolicy policy) {
+    if (policy == null || policy.getGraph() == null) {
+      return false;
+    }
+    boolean hasSplit = false;
+    boolean hasMerge = false;
+    for (final ProcessingPolicyGraph.GraphNode node : policy.getGraph().getNodes()) {
+      if (!"operator".equals(node.getKind())) {
+        continue;
+      }
+      final String op = normalizeOp(node.getLabel());
+      if ("split".equals(op) || "branch".equals(op)) {
+        hasSplit = true;
+      }
+      if ("merge".equals(op)) {
+        hasMerge = true;
+      }
+    }
+    return hasSplit && hasMerge;
+  }
+
+  private static int maxMergeChildScans(final AppProcessingPolicy.RelationalAlgebraExpressionNode node) {
+    if (node == null) {
+      return 0;
+    }
+    int max = 0;
+    if ("operator".equals(node.getKind()) && "merge".equals(node.getTopic())) {
+      int scans = 0;
+      for (final AppProcessingPolicy.RelationalAlgebraExpressionNode child : node.getChildren()) {
+        scans += countScanNodes(child);
+      }
+      max = Math.max(max, scans);
+    }
+    for (final AppProcessingPolicy.RelationalAlgebraExpressionNode child : node.getChildren()) {
+      max = Math.max(max, maxMergeChildScans(child));
+    }
+    return max;
+  }
+
+  private static int countScanNodes(final AppProcessingPolicy.RelationalAlgebraExpressionNode node) {
+    if (node == null) {
+      return 0;
+    }
+    int count = "scan".equals(node.getKind()) ? 1 : 0;
+    for (final AppProcessingPolicy.RelationalAlgebraExpressionNode child : node.getChildren()) {
+      count += countScanNodes(child);
+    }
+    return count;
+  }
+
+  public static boolean treeContainsOperator(
+      final AppProcessingPolicy.RelationalAlgebraExpressionNode node,
+      final String normalizedOperator) {
+    if (node == null || normalizedOperator == null || normalizedOperator.isEmpty()) {
+      return false;
+    }
+    if ("operator".equals(node.getKind())) {
+      final String op = node.getTopic() == null ? "" : node.getTopic();
+      if (normalizedOperator.equals(op)) {
+        return true;
+      }
+    }
+    for (final AppProcessingPolicy.RelationalAlgebraExpressionNode child : node.getChildren()) {
+      if (treeContainsOperator(child, normalizedOperator)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static int countBranchingOperators(final AppProcessingPolicy.RelationalAlgebraExpressionNode node) {
+    if (node == null) {
+      return 0;
+    }
+    int count = 0;
+    if ("operator".equals(node.getKind())) {
+      final String op = node.getTopic() == null ? "" : node.getTopic();
+      final String symbol = node.getAlgebraSymbol() == null ? "" : node.getAlgebraSymbol();
+      if (node.getChildren().size() > 1
+          && (isJoinOp(op) || "merge".equals(op) || "split".equals(op) || "branch".equals(op)
+              || "⋈".equals(symbol) || "∪".equals(symbol) || "σ∪".equals(symbol))) {
+        count++;
+      }
+    }
+    for (final AppProcessingPolicy.RelationalAlgebraExpressionNode child : node.getChildren()) {
+      count += countBranchingOperators(child);
+    }
+    return count;
   }
 
   public static boolean isJoinOp(final String op) {
@@ -236,7 +392,8 @@ public final class RelationalAlgebraTreeSupport {
   public static String algebraSymbol(final String op) {
     return switch (op) {
       case "filter" -> "σ";
-      case "mapvalues", "map", "flatmapvalues", "flatmap", "transform", "transformvalues", "process" -> "π";
+      case "mapvalues", "map", "flatmapvalues", "flatmap", "transform", "transformvalues", "process",
+          "forstockcheck", "forvalidation", "forbilling" -> "π";
       case "aggregate", "reduce", "count", "groupby", "groupbykey", "windowedby" -> "γ";
       case "join", "leftjoin", "outerjoin" -> "⋈";
       case "merge" -> "∪";
@@ -250,7 +407,8 @@ public final class RelationalAlgebraTreeSupport {
   public static String operatorDescription(final String op, final String sinkTopic) {
     return switch (op) {
       case "filter" -> "selection";
-      case "mapvalues", "map", "flatmapvalues", "flatmap", "transform", "transformvalues", "process" ->
+      case "mapvalues", "map", "flatmapvalues", "flatmap", "transform", "transformvalues", "process",
+          "forstockcheck", "forvalidation", "forbilling" ->
           "projection/map";
       case "aggregate", "reduce", "count" -> "group-by/aggregate";
       case "groupby", "groupbykey", "windowedby" -> "group/window";

@@ -317,6 +317,16 @@ public class PolicyAgent
                                     .visit(net.bytebuddy.asm.Advice.to(KafkaEntrypointAdvice.ProcessorAdvice.class).on(named("addProcessor")))
                     );
 
+            // ========================================================
+            // JUG plain-client projection callbacks
+            // ========================================================
+            agentBuilder = agentBuilder.type(named("jugistanbul.entity.EventProjections"))
+                    .transform((b, td, cl, m, pd) ->
+                            b.visit(Advice.to(EventProjectionsAdvice.ForStockCheckAdvice.class).on(named("forStockCheck")))
+                                    .visit(Advice.to(EventProjectionsAdvice.ForValidationAdvice.class).on(named("forValidation")))
+                                    .visit(Advice.to(EventProjectionsAdvice.ForBillingAdvice.class).on(named("forBilling")))
+                    );
+
             agentBuilder.installOn(inst);
         }
         catch(Exception e)
