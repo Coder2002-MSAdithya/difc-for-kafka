@@ -336,12 +336,24 @@ public class KafkaStreams implements AutoCloseable {
         return difc().requestGrantCap(tagName, capability);
     }
 
+    public GrantCapResponseData requestGrantCap(final String tagName, final Capability capability, final byte[] attestedPolicy) {
+        return difc().requestGrantCap(tagName, capability, attestedPolicy);
+    }
+
     public GrantCapResponseData requestAddCapabilityForTag(final String tagName) {
         return difc().requestAddCapabilityForTag(tagName);
     }
 
+    public GrantCapResponseData requestAddCapabilityForTag(final String tagName, final byte[] attestedPolicy) {
+        return difc().requestAddCapabilityForTag(tagName, attestedPolicy);
+    }
+
     public GrantCapResponseData requestRemoveCapabilityForTag(final String tagName) {
         return difc().requestRemoveCapabilityForTag(tagName);
+    }
+
+    public GrantCapResponseData requestRemoveCapabilityForTag(final String tagName, final byte[] attestedPolicy) {
+        return difc().requestRemoveCapabilityForTag(tagName, attestedPolicy);
     }
 
 

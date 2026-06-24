@@ -69,11 +69,23 @@ public final class DifcSyncFacade {
         return producer.requestGrantCap(tagName, capability);
     }
 
+    public GrantCapResponseData requestGrantCap(final String tagName, final Capability capability, final byte[] attestedPolicy) {
+        return producer.requestGrantCap(tagName, capability, attestedPolicy);
+    }
+
     public GrantCapResponseData requestAddCapabilityForTag(final String tagName) {
         return producer.requestAddCapabilityForTag(tagName);
     }
 
+    public GrantCapResponseData requestAddCapabilityForTag(final String tagName, final byte[] attestedPolicy) {
+        return producer.requestAddCapabilityForTag(tagName, attestedPolicy);
+    }
+
     public GrantCapResponseData requestRemoveCapabilityForTag(final String tagName) {
         return producer.requestRemoveCapabilityForTag(tagName);
+    }
+
+    public GrantCapResponseData requestRemoveCapabilityForTag(final String tagName, final byte[] attestedPolicy) {
+        return producer.requestRemoveCapabilityForTag(tagName, attestedPolicy);
     }
 }

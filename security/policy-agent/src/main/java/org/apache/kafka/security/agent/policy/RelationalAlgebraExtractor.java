@@ -65,9 +65,8 @@ public final class RelationalAlgebraExtractor {
             egress.getCallbackProjections() == null ? List.of() : egress.getCallbackProjections();
         final List<AppProcessingPolicy.OperatorCallbackProjection> manifestCallbacks =
             PolicyManifestRegistry.manifestCallbackProjectionsFor(policy.getPrincipal(), sinkTopic);
-        if (!manifestCallbacks.isEmpty()) {
-          callbacks = manifestCallbacks;
-        }
+        callbacks =
+            OperatorCallbackProjectionSupport.mergePreferringLive(callbacks, manifestCallbacks);
         final Set<String> ingressTopics =
             ProcessingPolicyGraphHelper.ingressTopicsForEgressPath(policy, egress);
         final AppProcessingPolicy.RelationalAlgebraExpressionNode splitMerge =
@@ -84,13 +83,13 @@ public final class RelationalAlgebraExtractor {
           RelationalAlgebraTreeBuilder.buildFromEgressMetadata(policy, egress);
       if (metadataTree != null && graphMissingSanitizationOperators(resolved, egress)) {
         if (RelationalAlgebraTreeSupport.hasBranchingTopology(resolved)) {
-          RelationalAlgebraTreeBuilder.overlaySanitizationFromMetadata(resolved, egress, metadataTree);
+          RelationalAlgebraTreeBuilder.overlaySanitizationFromMetadata(resolved, policy, egress, metadataTree);
         } else {
           resolved = metadataTree;
         }
       } else if (metadataTree != null && shouldPreferMetadataTree(policy, egress, resolved, metadataTree)) {
         if (RelationalAlgebraTreeSupport.hasBranchingTopology(resolved)) {
-          RelationalAlgebraTreeBuilder.overlaySanitizationFromMetadata(resolved, egress, metadataTree);
+          RelationalAlgebraTreeBuilder.overlaySanitizationFromMetadata(resolved, policy, egress, metadataTree);
         } else {
           resolved = metadataTree;
         }

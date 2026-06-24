@@ -70,5 +70,9 @@ public interface ConsumerDelegate<K, V> extends Consumer<K, V> {
 
     GrantCapResponseData sendRequestAddCapabilityForTag(String tagName);
 
+    GrantCapResponseData sendRequestAddCapabilityForTag(String tagName, byte[] attestedPolicy);
+
     GrantCapResponseData sendRequestRemoveCapabilityForTag(String tagName);
+
+    GrantCapResponseData sendRequestRemoveCapabilityForTag(String tagName, byte[] attestedPolicy);
 }

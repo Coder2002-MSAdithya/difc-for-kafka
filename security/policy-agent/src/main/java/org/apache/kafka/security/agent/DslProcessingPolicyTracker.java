@@ -2,6 +2,7 @@ package org.apache.kafka.security.agent;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.kafka.security.agent.policy.AppProcessingPolicy;
+import org.apache.kafka.security.agent.policy.FieldLineage;
 import org.apache.kafka.security.agent.policy.ProcessingPolicyEnricher;
 
 import java.nio.charset.StandardCharsets;
@@ -645,7 +646,35 @@ public final class DslProcessingPolicyTracker
                     .append("\"outputFields\":").append(toJsonStringArray(binding.outputFields)).append(',')
                     .append("\"selectionFields\":").append(toJsonStringArray(binding.selectionFields)).append(',')
                     .append("\"selectionExpression\":\"").append(escapeJson(binding.selectionExpression)).append("\",")
-                    .append("\"keyFields\":").append(toJsonStringArray(binding.keyFields))
+                    .append("\"keyFields\":").append(toJsonStringArray(binding.keyFields)).append(',')
+                    .append("\"fieldLineages\":").append(toJsonFieldLineagesArray(binding.fieldLineages))
+                    .append('}');
+            first = false;
+        }
+        sb.append(']');
+        return sb.toString();
+    }
+
+    private static String toJsonFieldLineagesArray(final List<FieldLineage> lineages)
+    {
+        final StringBuilder sb = new StringBuilder("[");
+        boolean first = true;
+        for (final FieldLineage lineage : lineages)
+        {
+            if (lineage == null)
+            {
+                continue;
+            }
+            if (!first)
+            {
+                sb.append(',');
+            }
+            sb.append('{')
+                    .append("\"outputField\":\"").append(escapeJson(lineage.getOutputField())).append("\",")
+                    .append("\"valueType\":\"").append(escapeJson(lineage.getValueType())).append("\",")
+                    .append("\"sourceFields\":").append(toJsonStringArray(lineage.getSourceFields())).append(',')
+                    .append("\"expression\":\"").append(escapeJson(lineage.getExpression())).append("\",")
+                    .append("\"sanitizationKind\":\"").append(escapeJson(lineage.getSanitizationKind())).append("\"")
                     .append('}');
             first = false;
         }
@@ -779,19 +808,22 @@ public final class DslProcessingPolicyTracker
         private final LinkedHashSet<String> selectionFields;
         private String selectionExpression;
         private final LinkedHashSet<String> keyFields;
+        private final List<FieldLineage> fieldLineages;
 
         private CallbackBinding(
                 final String operator,
                 final LinkedHashSet<String> outputFields,
                 final LinkedHashSet<String> selectionFields,
                 final String selectionExpression,
-                final LinkedHashSet<String> keyFields)
+                final LinkedHashSet<String> keyFields,
+                final List<FieldLineage> fieldLineages)
         {
             this.operator = operator == null ? "" : operator;
             this.outputFields = outputFields == null ? new LinkedHashSet<>() : outputFields;
             this.selectionFields = selectionFields == null ? new LinkedHashSet<>() : selectionFields;
             this.selectionExpression = selectionExpression == null ? "" : selectionExpression;
             this.keyFields = keyFields == null ? new LinkedHashSet<>() : keyFields;
+            this.fieldLineages = fieldLineages == null ? new ArrayList<>() : fieldLineages;
         }
 
         private static CallbackBinding fromEffect(
@@ -803,7 +835,8 @@ public final class DslProcessingPolicyTracker
                     new LinkedHashSet<>(effect.outputFields()),
                     new LinkedHashSet<>(effect.selectionFields()),
                     effect.selectionExpression(),
-                    new LinkedHashSet<>(effect.keyFields()));
+                    new LinkedHashSet<>(effect.keyFields()),
+                    new ArrayList<>(effect.fieldLineages()));
         }
 
         private void applyEffect(final org.apache.kafka.security.agent.policy.OperatorCallbackEffect effect)
@@ -815,6 +848,8 @@ public final class DslProcessingPolicyTracker
             selectionExpression = effect.selectionExpression();
             keyFields.clear();
             keyFields.addAll(effect.keyFields());
+            fieldLineages.clear();
+            fieldLineages.addAll(effect.fieldLineages());
         }
     }
 

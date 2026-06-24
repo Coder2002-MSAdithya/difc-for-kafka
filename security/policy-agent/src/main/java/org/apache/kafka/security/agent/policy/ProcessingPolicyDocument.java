@@ -237,6 +237,10 @@ public class ProcessingPolicyDocument {
     public static class CallbackProjectionBinding {
         private String operator;
         private List<String> outputFields = new ArrayList<>();
+        private List<String> selectionFields = new ArrayList<>();
+        private String selectionExpression = "";
+        private List<String> keyFields = new ArrayList<>();
+        private List<FieldLineage> fieldLineages = new ArrayList<>();
 
         public String getOperator() {
             return operator;
@@ -252,6 +256,38 @@ public class ProcessingPolicyDocument {
 
         public void setOutputFields(final List<String> outputFields) {
             this.outputFields = outputFields == null ? new ArrayList<>() : outputFields;
+        }
+
+        public List<String> getSelectionFields() {
+            return selectionFields;
+        }
+
+        public void setSelectionFields(final List<String> selectionFields) {
+            this.selectionFields = selectionFields == null ? new ArrayList<>() : selectionFields;
+        }
+
+        public String getSelectionExpression() {
+            return selectionExpression == null ? "" : selectionExpression;
+        }
+
+        public void setSelectionExpression(final String selectionExpression) {
+            this.selectionExpression = selectionExpression == null ? "" : selectionExpression;
+        }
+
+        public List<String> getKeyFields() {
+            return keyFields;
+        }
+
+        public void setKeyFields(final List<String> keyFields) {
+            this.keyFields = keyFields == null ? new ArrayList<>() : keyFields;
+        }
+
+        public List<FieldLineage> getFieldLineages() {
+            return fieldLineages;
+        }
+
+        public void setFieldLineages(final List<FieldLineage> fieldLineages) {
+            this.fieldLineages = fieldLineages == null ? new ArrayList<>() : fieldLineages;
         }
     }
 }

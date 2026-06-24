@@ -1157,9 +1157,16 @@ public class Sender implements Runnable {
 
     public CompletableFuture<GrantCapResponseData> sendGrantCapRequest(final String tagName,
                                                                        final String capability) {
+        return sendGrantCapRequest(tagName, capability, null);
+    }
+
+    public CompletableFuture<GrantCapResponseData> sendGrantCapRequest(final String tagName,
+                                                                       final String capability,
+                                                                       final byte[] attestedPolicy) {
         final GrantCapRequestData data = new GrantCapRequestData()
                 .setTagName(tagName)
-                .setCapability(capability);
+                .setCapability(capability)
+                .setAttestedPolicy(attestedPolicy);
         final GrantCapRequest.Builder builder = new GrantCapRequest.Builder(data);
         return sendDIFCRequest(
                 builder,

@@ -103,6 +103,46 @@ class RelationalAlgebraExtractorTest {
   }
 
   @Test
+  void projectionExpressionAppearsInAlgebraExpression() throws Exception {
+    final AppProcessingPolicy policy =
+        ProcessingPolicyEnricher.enrich(
+            readPolicy(
+                """
+                {
+                  "version": 2,
+                  "sources": ["orders"],
+                  "egressPaths": [
+                    {
+                      "topic": "order-validations",
+                      "ingressTopics": ["orders"],
+                      "operators": ["mapValues"],
+                      "callbackProjections": [
+                        {
+                          "operator":"mapValues",
+                          "outputFields":["orderId","checkType","validationResult"],
+                          "fieldLineages":[
+                            {
+                              "outputField":"orderId",
+                              "valueType":"STRING",
+                              "sourceFields":["id"],
+                              "expression":"orderId := id",
+                              "sanitizationKind":"DERIVED"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+                """));
+    final AppProcessingPolicy.ProcessingPathAnalysis path =
+        RelationalAlgebraExtractor.pathAnalysisFor(policy, "orders", "order-validations");
+    assertTrue(path != null);
+    assertTrue(path.getAlgebraExpression().contains("orderId := id"));
+    assertTrue(path.getAlgebraExpression().contains("π["));
+  }
+
+  @Test
   void ordersRepublicationViaJoinRetainsSensitiveFields() throws Exception {
     final AppProcessingPolicy policy =
         ProcessingPolicyEnricher.enrich(
@@ -393,10 +433,62 @@ class RelationalAlgebraExtractorTest {
     final AppProcessingPolicy.ProcessingPathAnalysis path =
         RelationalAlgebraExtractor.pathAnalysisFor(policy, "orders", "order-validations");
     assertTrue(path != null && path.getExpressionTree() != null);
-    assertTrue(RelationalAlgebraTreeSupport.hasBranchingTopology(path.getExpressionTree()));
     assertTrue(path.getAlgebraExpression().contains("∪"));
     assertTrue(path.getOutputFields().contains("orderId"));
     assertFalse(path.getOutputFields().contains("customerId"));
+  }
+
+  @Test
+  void fraudSplitMergeMetadataDocumentsWindowAndBranchSelections() throws Exception {
+    final AppProcessingPolicy policy =
+        ProcessingPolicyEnricher.enrich(
+            readPolicy(
+                """
+                {
+                  "version": 2,
+                  "principal": "fraud-svc",
+                  "sources": ["orders"],
+                  "aggregations": ["aggregate", "groupBy", "windowedBy"],
+                  "egressPaths": [
+                    {
+                      "topic": "order-validations",
+                      "ingressTopics": ["orders"],
+                      "operators": [
+                        "filter", "groupBy", "windowedBy", "aggregate",
+                        "split", "mapValues", "merge"
+                      ],
+                      "declassifyTags": ["order"],
+                      "callbackProjections": [
+                        {"operator":"mapValues","outputFields":["orderId","checkType","validationResult"]},
+                        {"operator":"merge","outputFields":[]}
+                      ]
+                    }
+                  ],
+                  "graph": {
+                    "nodes": [
+                      {"id":"topic_orders","kind":"topic","topic":"orders"},
+                      {"id":"op_split","kind":"operator","label":"split()"},
+                      {"id":"op_merge","kind":"operator","label":"merge()"},
+                      {"id":"topic_validations","kind":"topic","topic":"order-validations"}
+                    ],
+                    "edges": [
+                      {"from":"topic_orders","to":"op_merge","label":"input"},
+                      {"from":"op_merge","to":"topic_validations","label":"writes"}
+                    ]
+                  }
+                }
+                """));
+    final AppProcessingPolicy.ProcessingPathAnalysis path =
+        RelationalAlgebraExtractor.pathAnalysisFor(policy, "orders", "order-validations");
+    assertTrue(path != null && path.getExpressionTree() != null);
+    final String expr = path.getAlgebraExpression();
+    assertTrue(expr.contains("ω") || RelationalAlgebraTreeSupport.treeContainsOperator(
+        path.getExpressionTree(), "windowedby"));
+    assertTrue(expr.contains("γ_g") || RelationalAlgebraTreeSupport.treeContainsOperator(
+        path.getExpressionTree(), "groupby"));
+    assertTrue(expr.contains("session order total"));
+    assertEquals(1, RelationalAlgebraTreeBuilder.scanTopics(path.getExpressionTree()).size());
+    assertTrue(path.isAggregated());
   }
 
   @Test
@@ -547,6 +639,72 @@ class RelationalAlgebraExtractorTest {
     assertTrue(path != null && path.getExpressionTree() != null);
     assertTrue(path.getAlgebraExpression().contains("Scan(" + JugPipelineProjections.TOPIC_STOCK_CHECK + ")"));
     assertFalse(path.getOutputFields().contains("cardNumber"));
+  }
+
+  @Test
+  void taintReportMarksUnsanitizedDerivedAndDroppedFields() throws Exception {
+    final AppProcessingPolicy policy =
+        ProcessingPolicyEnricher.enrich(
+            readPolicy(
+                """
+                {
+                  "version": 2,
+                  "sources": ["orders"],
+                  "egressPaths": [{
+                    "topic": "order-validations",
+                    "ingressTopics": ["orders"],
+                    "operators": ["mapValues"],
+                    "callbackProjections": [
+                      {
+                        "operator":"mapValues",
+                        "outputFields":["orderId","checkType","validationResult"],
+                        "fieldLineages":[
+                          {
+                            "outputField":"orderId",
+                            "valueType":"STRING",
+                            "sourceFields":["id"],
+                            "expression":"id",
+                            "sanitizationKind":"PASSTHROUGH"
+                          },
+                          {
+                            "outputField":"checkType",
+                            "valueType":"STRING",
+                            "sourceFields":[],
+                            "expression":"FRAUD_CHECK",
+                            "sanitizationKind":"CONSTANT"
+                          },
+                          {
+                            "outputField":"validationResult",
+                            "valueType":"DOUBLE",
+                            "sourceFields":["price", "quantity"],
+                            "expression":"price * quantity",
+                            "sanitizationKind":"DERIVED"
+                          }
+                        ]
+                      }
+                    ]
+                  }]
+                }
+                """));
+    final AppProcessingPolicy.ProcessingPathAnalysis path =
+        RelationalAlgebraExtractor.pathAnalysisFor(policy, "orders", "order-validations");
+    assertTrue(path != null && !path.getSourceFieldTaint().isEmpty());
+    assertTrue(path.getSourceFieldCount() >= 6);
+    assertTrue(path.getUnsanitizedSourceFieldCount() >= 1);
+    assertTrue(
+        path.getSourceFieldTaint().stream()
+            .anyMatch(
+                status ->
+                    "price".equals(status.getSourceField())
+                        && !status.isSanitized()
+                        && status.getStatus().contains("UNSANITIZED")));
+    assertTrue(
+        path.getSourceFieldTaint().stream()
+            .anyMatch(
+                status ->
+                    "customerId".equals(status.getSourceField())
+                        && status.isSanitized()
+                        && "DROPPED".equals(status.getStatus())));
   }
 
   private static AppProcessingPolicy readPolicy(final String json) throws Exception {

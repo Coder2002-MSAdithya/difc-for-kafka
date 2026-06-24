@@ -509,7 +509,8 @@ public interface Controller extends AclMutator, AutoCloseable {
             ControllerRequestContext context,
             String tagName,
             String capabilityString,
-            String requesterPrincipal
+            String requesterPrincipal,
+            byte[] attestedPolicyBytes
     ){
         return  CompletableFuture.failedFuture(new UnsupportedOperationException("enqueueCapabilityRequest not implemented"));
     }

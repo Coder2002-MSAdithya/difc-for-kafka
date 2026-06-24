@@ -23,6 +23,14 @@
       "type": "string",
       "versions": "0+",
       "about": "The identifier of the client that requested the privileges"
+    },
+    {
+      "name": "attestedPolicy",
+      "type": "bytes",
+      "versions": "0+",
+      "nullableVersions": "0+",
+      "default": "null",
+      "about": "Signed attested processing-policy envelope supplied by the requester in GRANT_CAP."
     }
   ]
 }

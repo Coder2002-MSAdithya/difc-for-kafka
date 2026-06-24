@@ -1537,31 +1537,40 @@ public class ClassicKafkaConsumer<K, V> implements ConsumerDelegate<K, V> {
 
     @Override
     public GrantCapResponseData sendRequestAddCapabilityForTag(final String tagName) {
-        final GrantCapRequestData data = new GrantCapRequestData()
-                .setTagName(tagName)
-                .setCapability(Capability.CAN_ADD.name());
-        final GrantCapRequest.Builder builder = new GrantCapRequest.Builder(data);
-        final Timer timer = time.timer(requestTimeoutMs);
-        return sendCustomRequestAndWait(
-                builder,
-                GrantCapResponseData.class,
-                timer,
-                "GrantCap CAN_ADD request failed"
-        );
+        return sendRequestAddCapabilityForTag(tagName, null);
+    }
+
+    @Override
+    public GrantCapResponseData sendRequestAddCapabilityForTag(final String tagName, final byte[] attestedPolicy) {
+        return sendGrantCapRequest(tagName, Capability.CAN_ADD.name(), attestedPolicy, "GrantCap CAN_ADD request failed");
     }
 
     @Override
     public GrantCapResponseData sendRequestRemoveCapabilityForTag(final String tagName) {
+        return sendRequestRemoveCapabilityForTag(tagName, null);
+    }
+
+    @Override
+    public GrantCapResponseData sendRequestRemoveCapabilityForTag(final String tagName, final byte[] attestedPolicy) {
+        return sendGrantCapRequest(tagName, Capability.CAN_REMOVE.name(), attestedPolicy, "GrantCap CAN_REMOVE request failed");
+    }
+
+    private GrantCapResponseData sendGrantCapRequest(
+            final String tagName,
+            final String capability,
+            final byte[] attestedPolicy,
+            final String errorMessage) {
         final GrantCapRequestData data = new GrantCapRequestData()
                 .setTagName(tagName)
-                .setCapability(Capability.CAN_REMOVE.name());
+                .setCapability(capability)
+                .setAttestedPolicy(attestedPolicy);
         final GrantCapRequest.Builder builder = new GrantCapRequest.Builder(data);
         final Timer timer = time.timer(requestTimeoutMs);
         return sendCustomRequestAndWait(
                 builder,
                 GrantCapResponseData.class,
                 timer,
-                "GrantCap CAN_REMOVE request failed"
+                errorMessage
         );
     }
 }

@@ -1664,9 +1664,14 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
 
     public GrantCapResponseData requestGrantCap(final String tagName, final Capability capability)
     {
+        return requestGrantCap(tagName, capability, null);
+    }
+
+    public GrantCapResponseData requestGrantCap(final String tagName, final Capability capability, final byte[] attestedPolicy)
+    {
         throwIfProducerClosed();
         return await(
-                sender.sendGrantCapRequest(tagName, capability.name()),
+                sender.sendGrantCapRequest(tagName, capability.name(), attestedPolicy),
                 "Grant capability request failed"
         );
     }
@@ -1676,9 +1681,19 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         return requestGrantCap(tagName, Capability.CAN_ADD);
     }
 
+    public GrantCapResponseData requestAddCapabilityForTag(final String tagName, final byte[] attestedPolicy)
+    {
+        return requestGrantCap(tagName, Capability.CAN_ADD, attestedPolicy);
+    }
+
     public GrantCapResponseData requestRemoveCapabilityForTag(final String tagName)
     {
         return requestGrantCap(tagName, Capability.CAN_REMOVE);
+    }
+
+    public GrantCapResponseData requestRemoveCapabilityForTag(final String tagName, final byte[] attestedPolicy)
+    {
+        return requestGrantCap(tagName, Capability.CAN_REMOVE, attestedPolicy);
     }
 
     public DummyResponseData dummyRequest()

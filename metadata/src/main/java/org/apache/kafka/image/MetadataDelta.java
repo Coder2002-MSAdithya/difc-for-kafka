@@ -270,6 +270,9 @@ public final class MetadataDelta {
             case DIFC_TAG_OWNERSHIP_TRANSFERRED_RECORD:
                 getOrCreateDifcDelta().replay((DifcTagOwnershipTransferredRecord) record);
                 break;
+            case DIFC_GRANT_CAP_REQUEST_RECORD:
+                // Pending grant requests are controller-local queue state; not part of broker metadata image.
+                break;
             default:
                 throw new RuntimeException("Unknown metadata record type " + type);
         }

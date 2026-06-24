@@ -198,7 +198,8 @@ public class DifcControlManager
         return success(record, response.setErrorCode(Errors.NONE.code()));
     }
 
-    public ControllerResult<GrantCapResponseData> enqueueCapabilityRequest(String tagName, String capabilityString, String requesterPrincipal)
+    public ControllerResult<GrantCapResponseData> enqueueCapabilityRequest(
+            String tagName, String capabilityString, String requesterPrincipal, byte[] attestedPolicyBytes)
     {
         GrantCapResponseData response = new GrantCapResponseData();
 
@@ -226,11 +227,14 @@ public class DifcControlManager
                     .setErrorMessage("You cannot request capabilities for a tag you already own."));
         }
 
-        tagRegistrar.enqueueCapabilityRequest(owner.getClientId(), tagName, cap, requesterPrincipal);
+        tagRegistrar.enqueueCapabilityRequest(owner.getClientId(), tagName, cap, requesterPrincipal, attestedPolicyBytes);
 
-        // Empty list ensures this is ephemeral and doesn't write to KRaft disk
-        return ControllerResult.of(Collections.emptyList(),
-                response.setErrorCode(Errors.NONE.code()).setErrorMessage("Success"));
+        DifcGrantCapRequestRecord record = new DifcGrantCapRequestRecord()
+                .setRequesterPrincipal(requesterPrincipal)
+                .setTagName(tagName)
+                .setCapability(capabilityString)
+                .setAttestedPolicy(attestedPolicyBytes);
+        return success(record, response.setErrorCode(Errors.NONE.code()).setErrorMessage("Success"));
     }
 
     public ControllerResult<PollPrivsReqResponseData> pollPendingRequests(String clientId)
@@ -244,6 +248,7 @@ public class DifcControlManager
             response.setTagName(req.getTagName());
             response.setCapability((byte) req.getCapability().ordinal());
             response.setRequesterClientId(req.getFromClientId());
+            response.setAttestedPolicy(req.attestedPolicyBytes());
         } else {
             // Queue is empty or client not found
             response.setTagName("");
@@ -302,5 +307,21 @@ public class DifcControlManager
     void replay(DifcTagOwnershipTransferredRecord record)
     {
         tagRegistrar.grantOwnerPrivileges(record.fromClientId(), record.toClientId(), record.tagName());
+    }
+
+    void replay(DifcGrantCapRequestRecord record)
+    {
+        Capability cap;
+        try {
+            cap = Capability.valueOf(record.capability().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return;
+        }
+        ClientDIFCPrivs owner = tagRegistrar.getOwner(record.tagName());
+        if (owner == null) {
+            return;
+        }
+        tagRegistrar.enqueueCapabilityRequest(
+                owner.getClientId(), record.tagName(), cap, record.requesterPrincipal(), record.attestedPolicy());
     }
 }

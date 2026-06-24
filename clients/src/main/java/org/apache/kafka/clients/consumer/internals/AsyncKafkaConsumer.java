@@ -1900,7 +1900,17 @@ public class AsyncKafkaConsumer<K, V> implements ConsumerDelegate<K, V> {
     }
 
     @Override
+    public GrantCapResponseData sendRequestAddCapabilityForTag(String tagName, byte[] attestedPolicy) {
+        return null;
+    }
+
+    @Override
     public GrantCapResponseData sendRequestRemoveCapabilityForTag(String tagName) {
+        return null;
+    }
+
+    @Override
+    public GrantCapResponseData sendRequestRemoveCapabilityForTag(String tagName, byte[] attestedPolicy) {
         return null;
     }
 

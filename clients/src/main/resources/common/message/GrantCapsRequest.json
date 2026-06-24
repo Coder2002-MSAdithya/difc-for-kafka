@@ -17,6 +17,14 @@
       "type": "string",
       "versions": "0+",
       "about": "The capability to grant for the provided tag name."
+    },
+    {
+      "name": "attestedPolicy",
+      "type": "bytes",
+      "versions": "0+",
+      "nullableVersions": "0+",
+      "default": "null",
+      "about": "Signed attested processing-policy envelope (JSON bytes). Required for CAN_REMOVE; optional for CAN_ADD external-connection verification."
     }
   ]
 }

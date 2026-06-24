@@ -1,0 +1,13 @@
+{
+  "apiKey": 1006,
+  "type": "metadata",
+  "name": "DifcGrantCapRequestRecord",
+  "validVersions": "0",
+  "flexibleVersions": "0+",
+  "fields": [
+    { "name": "RequesterPrincipal", "type": "string", "versions": "0+", "about": "The client requesting the capability." },
+    { "name": "TagName", "type": "string", "versions": "0+", "about": "The tag the capability applies to." },
+    { "name": "Capability", "type": "string", "versions": "0+", "about": "CAN_ADD or CAN_REMOVE." },
+    { "name": "AttestedPolicy", "type": "bytes", "versions": "0+", "nullableVersions": "0+", "default": "null", "about": "Signed attested processing-policy envelope (JSON bytes)." }
+  ]
+}

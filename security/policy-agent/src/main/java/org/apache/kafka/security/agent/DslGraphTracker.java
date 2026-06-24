@@ -169,7 +169,11 @@ public final class DslGraphTracker {
             if ("aggregate".equals(operator) || "reduce".equals(operator) || "count".equals(operator)) {
                 pendingMaterializationOpId = opId;
             }
-            DslProcessingPolicyTracker.recordUnary(operator, upstream, returned, source, function);
+            if ("windowedBy".equals(operator)) {
+                DslProcessingPolicyTracker.recordUnary(operator, upstream, returned, source, arg);
+            } else {
+                DslProcessingPolicyTracker.recordUnary(operator, upstream, returned, source, function);
+            }
             writeDotFile();
         }
     }

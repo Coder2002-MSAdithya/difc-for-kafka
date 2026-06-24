@@ -139,8 +139,8 @@ public final class SocketPolicyBootstrap {
 
     /**
      * Microservices such as OrdersService combine an app-level {@code KafkaProducer} (REST ingress)
-     * with a {@code KafkaStreams} runtime in one JVM. Pipeline republishers (stock, validation, payment)
-     * combine a {@code KafkaConsumer} with a transactional {@code KafkaProducer} in one JVM.
+     * with a {@code KafkaStreams} runtime in one JVM. {@code KafkaConsumer} and {@code KafkaProducer}
+     * in the same process are not permitted (use {@code KafkaStreams} for consume-and-produce).
      */
     private static boolean isAllowedAdditionalClientType(final KafkaClientType type)
     {
@@ -149,14 +149,6 @@ public final class SocketPolicyBootstrap {
             return true;
         }
         if (type == KafkaClientType.STREAMS && REGISTERED_CLIENT_TYPES.contains(KafkaClientType.PRODUCER))
-        {
-            return true;
-        }
-        if (type == KafkaClientType.PRODUCER && REGISTERED_CLIENT_TYPES.contains(KafkaClientType.CONSUMER))
-        {
-            return true;
-        }
-        if (type == KafkaClientType.CONSUMER && REGISTERED_CLIENT_TYPES.contains(KafkaClientType.PRODUCER))
         {
             return true;
         }

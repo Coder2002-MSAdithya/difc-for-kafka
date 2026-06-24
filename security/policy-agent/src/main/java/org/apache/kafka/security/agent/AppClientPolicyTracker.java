@@ -1,6 +1,7 @@
 package org.apache.kafka.security.agent;
 
 import org.apache.kafka.security.agent.policy.AppProcessingPolicy;
+import org.apache.kafka.security.agent.policy.OperatorCallbackProjectionSupport;
 import org.apache.kafka.security.agent.policy.PolicyRefreshScheduler;
 import org.apache.kafka.security.agent.policy.ProcessingPolicyGraph;
 
@@ -267,17 +268,9 @@ public final class AppClientPolicyTracker {
     private static List<AppProcessingPolicy.OperatorCallbackProjection> mergeCallbackProjections(
             final AppProcessingPolicy.EgressPath left,
             final AppProcessingPolicy.EgressPath right) {
-        if (right.getCallbackProjections().isEmpty()) {
-            return left.getCallbackProjections() == null
-                    ? new ArrayList<>()
-                    : new ArrayList<>(left.getCallbackProjections());
-        }
-        final List<AppProcessingPolicy.OperatorCallbackProjection> merged = new ArrayList<>();
-        if (left.getCallbackProjections() != null) {
-            merged.addAll(left.getCallbackProjections());
-        }
-        merged.addAll(right.getCallbackProjections());
-        return merged;
+        return OperatorCallbackProjectionSupport.mergePreferringLive(
+                left == null ? List.of() : left.getCallbackProjections(),
+                right == null ? List.of() : right.getCallbackProjections());
     }
 
     private static List<String> union(final List<String> left, final List<String> right) {

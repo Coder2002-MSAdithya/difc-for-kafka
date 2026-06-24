@@ -94,14 +94,29 @@ public final class StreamsDIFC
         return sync.requestGrantCap(tagName, capability);
     }
 
+    public GrantCapResponseData requestGrantCap(final String tagName, final Capability capability, final byte[] attestedPolicy)
+    {
+        return sync.requestGrantCap(tagName, capability, attestedPolicy);
+    }
+
     public GrantCapResponseData requestAddCapabilityForTag(final String tagName)
     {
         return sync.requestAddCapabilityForTag(tagName);
     }
 
+    public GrantCapResponseData requestAddCapabilityForTag(final String tagName, final byte[] attestedPolicy)
+    {
+        return sync.requestAddCapabilityForTag(tagName, attestedPolicy);
+    }
+
     public GrantCapResponseData requestRemoveCapabilityForTag(final String tagName)
     {
         return sync.requestRemoveCapabilityForTag(tagName);
+    }
+
+    public GrantCapResponseData requestRemoveCapabilityForTag(final String tagName, final byte[] attestedPolicy)
+    {
+        return sync.requestRemoveCapabilityForTag(tagName, attestedPolicy);
     }
 
     public boolean waitForAddCapability(

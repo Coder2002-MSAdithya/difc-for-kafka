@@ -1,6 +1,7 @@
 package org.apache.kafka.security.agent.policy;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 
 /**
@@ -64,7 +65,8 @@ public final class PolicyManifestRegistry {
             "FraudService",
             "fraud-svc",
             "fraud",
-            List.of("filter", "groupBy", "windowedBy", "aggregate", "split", "mapValues", "merge"));
+            List.of("filter", "groupBy", "windowedBy", "aggregate", "split", "mapValues", "merge"),
+            "fraud");
     }
 
     public static ProcessingPolicyDocument inventoryValidator() {
@@ -72,7 +74,8 @@ public final class PolicyManifestRegistry {
             "InventoryService",
             "inventory-svc",
             "inv-valid",
-            List.of("selectKey", "filter", "join", "mapValues", "process"));
+            List.of("selectKey", "filter", "join", "mapValues", "process"),
+            "inventory");
         doc.setTableSources(List.of("warehouse-inventory"));
         return doc;
     }
@@ -82,14 +85,16 @@ public final class PolicyManifestRegistry {
             "OrderDetailsService",
             "order-details-svc",
             "order-valid",
-            List.of("filter", "mapValues"));
+            List.of("filter", "mapValues"),
+            "order-details");
     }
 
     private static ProcessingPolicyDocument validatorSink(
             final String applicationId,
             final String principal,
             final String validationTag,
-            final List<String> operators) {
+            final List<String> operators,
+            final String profile) {
         final ProcessingPolicyDocument doc = new ProcessingPolicyDocument();
         doc.setVersion(1);
         doc.setApplicationId(applicationId);
@@ -101,25 +106,144 @@ public final class PolicyManifestRegistry {
         validationsOut.setRemovedTags(List.of("order"));
         validationsOut.setAddedTags(List.of(validationTag));
         validationsOut.setOperators(operators);
-        validationsOut.setCallbackProjections(validationMapValuesProjection(operators));
+        validationsOut.setCallbackProjections(validationCallbacksForOperators(operators, profile));
         doc.setSinkBindings(List.of(validationsOut));
         return doc;
     }
 
-    private static List<ProcessingPolicyDocument.CallbackProjectionBinding> validationMapValuesProjection(
-            final List<String> operators) {
+    private static List<ProcessingPolicyDocument.CallbackProjectionBinding> validationCallbacksForOperators(
+            final List<String> operators, final String profile) {
         final List<ProcessingPolicyDocument.CallbackProjectionBinding> callbacks = new ArrayList<>();
         for (final String operator : operators) {
-            if (!"mapValues".equals(operator)) {
-                continue;
-            }
             final ProcessingPolicyDocument.CallbackProjectionBinding binding =
                     new ProcessingPolicyDocument.CallbackProjectionBinding();
             binding.setOperator(operator);
-            binding.setOutputFields(List.of("orderId", "checkType", "validationResult"));
+            enrichValidationCallback(binding, operator, profile);
             callbacks.add(binding);
         }
         return callbacks;
+    }
+
+    private static void enrichValidationCallback(
+            final ProcessingPolicyDocument.CallbackProjectionBinding binding,
+            final String operator,
+            final String profile) {
+        final String op = RelationalAlgebraTreeSupport.normalizeOp(operator + "()");
+        switch (profile) {
+            case "fraud" -> enrichFraudCallback(binding, op);
+            case "inventory" -> enrichInventoryCallback(binding, op);
+            case "order-details" -> enrichOrderDetailsCallback(binding, op);
+            default -> {
+            }
+        }
+    }
+
+    private static void enrichFraudCallback(
+            final ProcessingPolicyDocument.CallbackProjectionBinding binding, final String op) {
+        switch (op) {
+            case "filter" -> {
+                binding.setSelectionExpression("order.state = CREATED");
+                binding.setSelectionFields(List.of("state"));
+            }
+            case "groupby", "groupbykey" -> binding.setKeyFields(List.of("customerId"));
+            case "windowedby" -> binding.setSelectionExpression("window:session 1h inactivity gap");
+            case "aggregate" -> binding.setFieldLineages(
+                    List.of(
+                        manifestLineage(
+                            "_aggregate_value",
+                            List.of("quantity", "price"),
+                            "sum(quantity × price)",
+                            FieldLineage.SanitizationKind.AGGREGATE)));
+            case "mapvalues", "process" -> {
+                binding.setOutputFields(List.of("orderId", "checkType", "validationResult"));
+                binding.setFieldLineages(validationProjectionLineages());
+            }
+            default -> {
+            }
+        }
+    }
+
+    private static void enrichInventoryCallback(
+            final ProcessingPolicyDocument.CallbackProjectionBinding binding, final String op) {
+        switch (op) {
+            case "filter" -> {
+                if (binding.getSelectionExpression().isEmpty()) {
+                    binding.setSelectionExpression("¬ tombstone ∧ order.state = CREATED");
+                    binding.setSelectionFields(List.of("state"));
+                }
+            }
+            case "selectkey" -> binding.setKeyFields(List.of("product"));
+            case "mapvalues", "process" -> {
+                binding.setOutputFields(List.of("orderId", "checkType", "validationResult"));
+                binding.setFieldLineages(validationProjectionLineages());
+            }
+            default -> {
+            }
+        }
+    }
+
+    private static void enrichOrderDetailsCallback(
+            final ProcessingPolicyDocument.CallbackProjectionBinding binding, final String op) {
+        switch (op) {
+            case "filter" -> {
+                binding.setSelectionExpression("order.state = CREATED");
+                binding.setSelectionFields(List.of("state"));
+            }
+            case "mapvalues" -> {
+                binding.setOutputFields(List.of("orderId", "checkType", "validationResult"));
+                binding.setFieldLineages(
+                    List.of(
+                        manifestLineage(
+                            "orderId",
+                            List.of("id"),
+                            "id",
+                            FieldLineage.SanitizationKind.PASSTHROUGH),
+                        manifestLineage(
+                            "checkType",
+                            List.of(),
+                            "ORDER_DETAILS_CHECK",
+                            FieldLineage.SanitizationKind.CONSTANT),
+                        manifestLineage(
+                            "validationResult",
+                            List.of("quantity", "price", "product"),
+                            "quantity≥0 ∧ price≥0 ∧ product≠∅",
+                            FieldLineage.SanitizationKind.BOOLEAN_PREDICATE)));
+            }
+            default -> {
+            }
+        }
+    }
+
+    private static List<FieldLineage> validationProjectionLineages() {
+        return List.of(
+            manifestLineage(
+                "orderId",
+                List.of("id"),
+                "id",
+                FieldLineage.SanitizationKind.PASSTHROUGH),
+            manifestLineage(
+                "checkType",
+                List.of(),
+                "checkType",
+                FieldLineage.SanitizationKind.CONSTANT),
+            manifestLineage(
+                "validationResult",
+                List.of(),
+                "PASS | FAIL",
+                FieldLineage.SanitizationKind.CONSTANT));
+    }
+
+    private static FieldLineage manifestLineage(
+            final String outputField,
+            final List<String> sources,
+            final String expression,
+            final FieldLineage.SanitizationKind kind) {
+        return new FieldLineage(
+            outputField,
+            FieldLineage.ValueType.UNKNOWN,
+            new LinkedHashSet<>(sources),
+            expression,
+            kind);
     }
 
     public static ProcessingPolicyDocument validationsAggregator() {
@@ -275,6 +399,13 @@ public final class PolicyManifestRegistry {
                 callback.setOperator(manifest.getOperator());
                 callback.setOutputFields(
                         manifest.getOutputFields() == null ? List.of() : manifest.getOutputFields());
+                callback.setSelectionFields(
+                        manifest.getSelectionFields() == null ? List.of() : manifest.getSelectionFields());
+                callback.setSelectionExpression(
+                        manifest.getSelectionExpression() == null ? "" : manifest.getSelectionExpression());
+                callback.setKeyFields(manifest.getKeyFields() == null ? List.of() : manifest.getKeyFields());
+                callback.setFieldLineages(
+                        manifest.getFieldLineages() == null ? List.of() : manifest.getFieldLineages());
                 callbacks.add(callback);
             }
             return callbacks;

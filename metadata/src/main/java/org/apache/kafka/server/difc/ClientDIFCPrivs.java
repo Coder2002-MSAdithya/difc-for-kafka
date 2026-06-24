@@ -145,7 +145,12 @@ public class ClientDIFCPrivs
 
     public int addCapabilityRequest(String tagName, Capability cap, String fromClientId)
     {
-        CapabilityRequest newReq = new CapabilityRequest(tagName, cap, fromClientId);
+        return addCapabilityRequest(tagName, cap, fromClientId, null);
+    }
+
+    public int addCapabilityRequest(String tagName, Capability cap, String fromClientId, byte[] attestedPolicyBytes)
+    {
+        CapabilityRequest newReq = new CapabilityRequest(tagName, cap, fromClientId, attestedPolicyBytes);
 
         // Prevent duplicate spam, but add to the back of the queue
         if (!pendingRequests.contains(newReq)) {

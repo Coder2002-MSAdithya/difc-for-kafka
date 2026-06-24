@@ -23,7 +23,7 @@ public final class JugPipelineProjections {
         TOPIC_STOCK_CHECK,
         Set.of("customerId", "productId", "amount", "inStock", "cardNumber"));
     EgressProjectionRegistry.register(
-        TOPIC_VALIDATION, Set.of("customerId", "isNumberValid"));
+        TOPIC_VALIDATION, Set.of("customerId", "amount", "isNumberValid"));
     EgressProjectionRegistry.register(TOPIC_BILLING, Set.of("customerId", "price"));
   }
 
@@ -70,7 +70,7 @@ public final class JugPipelineProjections {
     return switch (operator) {
       case OP_FOR_STOCK_CHECK ->
           List.of("customerId", "productId", "amount", "inStock", "cardNumber");
-      case OP_FOR_VALIDATION -> List.of("customerId", "isNumberValid");
+      case OP_FOR_VALIDATION -> List.of("customerId", "amount", "isNumberValid");
       case OP_FOR_BILLING -> List.of("customerId", "price");
       default -> List.of();
     };

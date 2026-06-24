@@ -410,7 +410,9 @@ class ControllerApis(
     )
 
     // Using your fields: data().tagName() and data().capability()
-    controller.enqueueCapabilityRequest(context, req.data().tagName(), req.data().capability(), requesterPrincipal).handle[Unit] { (response, exception) =>
+    controller.enqueueCapabilityRequest(
+      context, req.data().tagName(), req.data().capability(), requesterPrincipal, req.data().attestedPolicy()
+    ).handle[Unit] { (response, exception) =>
       if (exception != null) {
         requestHelper.sendErrorResponseMaybeThrottle(request, exception)
       } else {

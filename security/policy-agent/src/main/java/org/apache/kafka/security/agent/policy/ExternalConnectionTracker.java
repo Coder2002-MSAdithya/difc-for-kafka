@@ -6,7 +6,12 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-/** Records non-Kafka socket connects observed at runtime for attestation and grant-time checks. */
+/**
+ * Agent-side observer: records non-Kafka socket connects at runtime and attaches them to the
+ * signed processing policy. Grantors verify attested endpoints against their own expected registry;
+ * {@link #mergeInto} only reports what was observed and whether the agent runtime allowlist
+ * permitted the connect ({@link ExternalConnectionAllowlist}).
+ */
 public final class ExternalConnectionTracker {
 
   private static final Object LOCK = new Object();
@@ -57,12 +62,13 @@ public final class ExternalConnectionTracker {
       return;
     }
     final List<AppProcessingPolicy.ExternalConnection> connections = new ArrayList<>();
-    final Set<String> allowed = ExternalConnectionAllowlist.configuredEndpoints();
+    final Set<String> runtimeAllowlist = ExternalConnectionAllowlist.configuredEndpoints();
     for (final String endpoint : observedEndpoints()) {
       final AppProcessingPolicy.ExternalConnection connection =
           new AppProcessingPolicy.ExternalConnection();
       connection.setEndpoint(endpoint);
-      connection.setAllowed(allowed.contains(endpoint));
+      // Runtime agent allowlist only — grantors compare endpoints to their expected registry.
+      connection.setAllowed(runtimeAllowlist.isEmpty() || runtimeAllowlist.contains(endpoint));
       connections.add(connection);
     }
     policy.setExternalConnections(connections);

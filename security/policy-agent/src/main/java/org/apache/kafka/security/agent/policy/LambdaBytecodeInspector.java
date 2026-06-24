@@ -49,7 +49,11 @@ public final class LambdaBytecodeInspector {
           "compareTo",
           "compare",
           "validate",
-          "newInstance");
+          "newInstance",
+          "buildPropertiesFromConfigFile",
+          "baseStreamsConfig",
+          "getOptionValue",
+          "simpleMerge");
 
   private LambdaBytecodeInspector() {
   }
@@ -70,7 +74,114 @@ public final class LambdaBytecodeInspector {
       return new ResolvedCallbackMethod(
           registryInfo.implClass, registryInfo.implMethod, registryInfo.implDesc);
     }
+    final ResolvedCallbackMethod fromApply = resolveDelegatedImplFromApply(callback);
+    if (fromApply != null) {
+      return fromApply;
+    }
     return resolveFromGeneratedLambda(callback.getClass());
+  }
+
+  static ResolvedCallbackMethod resolveFromCapturingClass(final Object callback) {
+    final String capturingClassName = capturingClassName(callback.getClass());
+    if (capturingClassName == null) {
+      return null;
+    }
+    final ClassLoader classLoader = callback.getClass().getClassLoader();
+    final List<MethodReferenceTarget> targets = listLambdaMethodReferences(capturingClassName, classLoader);
+    if (targets.isEmpty()) {
+      return null;
+    }
+    final int ordinal = ordinalForCallback(callback, capturingClassName);
+    if (ordinal < 0 || ordinal >= targets.size()) {
+      return null;
+    }
+    final MethodReferenceTarget target = targets.get(ordinal);
+    if (target.name() == null || !target.name().startsWith("lambda$")) {
+      return null;
+    }
+    return new ResolvedCallbackMethod(target.owner(), target.name(), target.desc());
+  }
+
+  /** Hidden-lambda {@code apply} trampolines that delegate to {@code lambda$…} in the capturing class. */
+  static ResolvedCallbackMethod resolveDelegatedImplFromApply(final Object callback) {
+    if (callback == null) {
+      return null;
+    }
+    final String capturingClassName = capturingClassName(callback.getClass());
+    if (capturingClassName == null) {
+      return null;
+    }
+    final String capturingInternal = capturingClassName.replace('.', '/');
+    final MethodNode apply = findFunctionalMethodNode(callback.getClass());
+    if (apply == null) {
+      return null;
+    }
+    final ClassLoader classLoader = callback.getClass().getClassLoader();
+    ResolvedCallbackMethod best = null;
+    int bestScore = -1;
+    for (final AbstractInsnNode insn : apply.instructions) {
+      if (!(insn instanceof MethodInsnNode invoke)) {
+        continue;
+      }
+      if (!capturingInternal.equals(invoke.owner)) {
+        continue;
+      }
+      if (invoke.name == null || !invoke.name.startsWith("lambda$")) {
+        continue;
+      }
+      final MethodNode nested = findMethodNode(loadClass(invoke.owner, classLoader), invoke.name, invoke.desc);
+      int score = nested == null ? 0 : scoreDelegatedImplCandidate(nested, invoke.name, invoke.desc, classLoader);
+      if (score > bestScore) {
+        bestScore = score;
+        best = new ResolvedCallbackMethod(invoke.owner, invoke.name, invoke.desc);
+      }
+    }
+    return best;
+  }
+
+  private static int scoreDelegatedImplCandidate(
+      final MethodNode method,
+      final String invokeName,
+      final String methodDesc,
+      final ClassLoader classLoader) {
+    int score = extractProjectionFields(method, classLoader).size();
+    if (invokeName != null && invokeName.startsWith("lambda$")) {
+      score += 10;
+    }
+    final Type ret = returnTypeFromDesc(methodDesc);
+    if (ret != null && ret.getSort() == Type.OBJECT && !ret.getClassName().startsWith("java.")) {
+      score += 15;
+    }
+    if (ret != null && (ret.getSort() == Type.BOOLEAN || ret.getSort() == Type.LONG)) {
+      score -= 8;
+    }
+    score += extractFieldReferencesUntil(method, null).size();
+    return score;
+  }
+
+  static boolean isInfrastructureMethodName(final String name) {
+    if (name == null || name.isEmpty()) {
+      return false;
+    }
+    if (IGNORED_BUILDER_METHODS.contains(name)) {
+      return true;
+    }
+    return name.startsWith("getOptionValue")
+        || (name.startsWith("build") && (name.contains("Config") || name.contains("Properties")));
+  }
+
+  static boolean isInfrastructureFieldName(final String field) {
+    if (isInfrastructureMethodName(field)) {
+      return true;
+    }
+    return field != null
+        && (field.startsWith("get")
+            || field.equals("printf")
+            || field.equals("key")
+            || field.equals("_aggregate_value")
+            || field.equals("_selection")
+            || field.equals("simpleMerge")
+            || field.matches("(long|int|double|float|short|byte|char)Value"));
   }
 
   public static MethodNode findMethodNode(final Class<?> cls, final String name, final String desc) {
@@ -118,45 +229,44 @@ public final class LambdaBytecodeInspector {
       return Set.of();
     }
     final Set<String> builderFields = extractBuilderSetterFields(method);
-    if (!builderFields.isEmpty()) {
-      return builderFields;
-    }
     final Set<String> constructorFields = extractConstructorOutputFields(method, classLoader);
-    if (!constructorFields.isEmpty()) {
-      return constructorFields;
+    if (!builderFields.isEmpty() || !constructorFields.isEmpty()) {
+      final LinkedHashSet<String> merged = new LinkedHashSet<>(constructorFields);
+      merged.addAll(builderFields);
+      return merged;
     }
     return extractDelegatedProjectionFields(method, classLoader);
   }
 
   public static Set<String> extractSelectionFieldReferences(final MethodNode method) {
+    return extractFieldReferencesUntil(method, null);
+  }
+
+  /**
+   * Record accessors and domain GETFIELD references from method entry until {@code end} (exclusive).
+   */
+  public static Set<String> extractFieldReferencesUntil(
+      final MethodNode method, final AbstractInsnNode end) {
     if (method == null) {
       return Set.of();
     }
     final LinkedHashSet<String> fields = new LinkedHashSet<>();
-    for (final AbstractInsnNode insn : method.instructions) {
-      if (!(insn instanceof MethodInsnNode invoke)) {
-        continue;
+    for (AbstractInsnNode insn = method.instructions.getFirst();
+        insn != null && insn != end;
+        insn = insn.getNext()) {
+      if (insn instanceof MethodInsnNode invoke && isRecordAccessorInvoke(invoke)) {
+        final String field = getterOrBooleanAccessorToField(invoke.name);
+        if (isLikelyDomainField(field)) {
+          fields.add(field);
+        }
       }
-      if (!isRecordAccessorInvoke(invoke)) {
-        continue;
-      }
-      final String field = getterOrBooleanAccessorToField(invoke.name);
-      if (field != null && !field.isEmpty()) {
-        fields.add(field);
-      }
-    }
-    for (final AbstractInsnNode insn : method.instructions) {
-      if (insn.getOpcode() != Opcodes.GETFIELD) {
-        continue;
-      }
-      if (!(insn instanceof org.objectweb.asm.tree.FieldInsnNode fieldInsn)) {
-        continue;
-      }
-      if (fieldInsn.owner.startsWith("java/") || isFrameworkType(fieldInsn.owner)) {
-        continue;
-      }
-      if (fieldInsn.name != null && !fieldInsn.name.isEmpty()) {
-        fields.add(fieldInsn.name);
+      if (insn.getOpcode() == Opcodes.GETFIELD && insn instanceof org.objectweb.asm.tree.FieldInsnNode fieldInsn) {
+        if (fieldInsn.owner.startsWith("java/") || isFrameworkType(fieldInsn.owner)) {
+          continue;
+        }
+        if (isLikelyDomainField(fieldInsn.name)) {
+          fields.add(fieldInsn.name);
+        }
       }
     }
     return fields;
@@ -171,6 +281,64 @@ public final class LambdaBytecodeInspector {
       return "";
     }
     return String.join(" ∧ ", selectionFields);
+  }
+
+  public static String buildPredicateExpression(final MethodNode method) {
+    if (method == null) {
+      return "";
+    }
+    final Set<String> fields = extractSelectionFieldReferences(method);
+    if (fields.isEmpty()) {
+      return "";
+    }
+    if (containsComparisonOpcode(method)) {
+      return String.join(" ∧ ", fields) + " ?";
+    }
+    return buildSelectionExpression(fields);
+  }
+
+  private static boolean containsComparisonOpcode(final MethodNode method) {
+    for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+      if (isComparisonOpcode(insn.getOpcode())) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean isComparisonOpcode(final int opcode) {
+    return opcode == Opcodes.IFEQ
+        || opcode == Opcodes.IFNE
+        || opcode == Opcodes.IFLT
+        || opcode == Opcodes.IFGE
+        || opcode == Opcodes.IFGT
+        || opcode == Opcodes.IFLE
+        || opcode == Opcodes.IF_ICMPEQ
+        || opcode == Opcodes.IF_ICMPNE
+        || opcode == Opcodes.IF_ICMPLT
+        || opcode == Opcodes.IF_ICMPGE
+        || opcode == Opcodes.IF_ICMPGT
+        || opcode == Opcodes.IF_ICMPLE
+        || opcode == Opcodes.IF_ACMPEQ
+        || opcode == Opcodes.IF_ACMPNE
+        || opcode == Opcodes.LCMP
+        || opcode == Opcodes.FCMPL
+        || opcode == Opcodes.FCMPG
+        || opcode == Opcodes.DCMPL
+        || opcode == Opcodes.DCMPG;
+  }
+
+  static boolean isLikelyDomainField(final String field) {
+    if (field == null || field.isEmpty()) {
+      return false;
+    }
+    if (isInfrastructureMethodName(field) || isInfrastructureFieldName(field)) {
+      return false;
+    }
+    if (field.equals(field.toUpperCase(java.util.Locale.ROOT)) && field.contains("_")) {
+      return false;
+    }
+    return !field.startsWith("lambda$");
   }
 
   public static boolean isConstantInstruction(final AbstractInsnNode insn) {
@@ -209,8 +377,14 @@ public final class LambdaBytecodeInspector {
       if (!isBuilderStyleInvoke(invoke)) {
         continue;
       }
+      if (isFrameworkType(invoke.owner) || invoke.owner.startsWith("java/io/")) {
+        continue;
+      }
       final String name = invoke.name;
-      if (name == null || name.isEmpty() || IGNORED_BUILDER_METHODS.contains(name)) {
+      if (name == null || name.isEmpty() || isInfrastructureMethodName(name)) {
+        continue;
+      }
+      if (name.startsWith("get") || name.endsWith("Value")) {
         continue;
       }
       if (name.startsWith("set") && name.length() > 3) {
@@ -287,8 +461,7 @@ public final class LambdaBytecodeInspector {
   static boolean isBuilderStyleInvoke(final MethodInsnNode invoke) {
     return invoke.getOpcode() == Opcodes.INVOKEVIRTUAL
         || invoke.getOpcode() == Opcodes.INVOKESPECIAL
-        || invoke.getOpcode() == Opcodes.INVOKEINTERFACE
-        || invoke.getOpcode() == Opcodes.INVOKESTATIC;
+        || invoke.getOpcode() == Opcodes.INVOKEINTERFACE;
   }
 
   static boolean isRecordAccessorInvoke(final MethodInsnNode invoke) {
@@ -384,11 +557,47 @@ public final class LambdaBytecodeInspector {
 
   static ResolvedCallbackMethod resolveFromGeneratedLambda(final Class<?> lambdaClass) {
     final MethodNode apply = findFunctionalMethodNode(lambdaClass);
-    if (apply == null) {
+    if (apply != null) {
+      final String owner = lambdaClass.getName().replace('.', '/');
+      return new ResolvedCallbackMethod(owner, apply.name, apply.desc);
+    }
+    for (final String name : List.of("apply", "test", "get")) {
+      for (final java.lang.reflect.Method method : lambdaClass.getDeclaredMethods()) {
+        if (!name.equals(method.getName())) {
+          continue;
+        }
+        return new ResolvedCallbackMethod(
+            lambdaClass.getName().replace('.', '/'),
+            method.getName(),
+            Type.getMethodDescriptor(method));
+      }
+    }
+    return null;
+  }
+
+  static Class<?> firstParameterTypeFromDesc(final String desc, final ClassLoader classLoader) {
+    if (!isFunctionalDescriptor(desc)) {
       return null;
     }
-    final String owner = lambdaClass.getName().replace('.', '/');
-    return new ResolvedCallbackMethod(owner, apply.name, apply.desc);
+    final Type[] args = Type.getArgumentTypes(desc);
+    if (args.length == 0) {
+      return null;
+    }
+    final Type first = args[0];
+    if (first.getSort() == Type.OBJECT) {
+      return loadClass(first.getInternalName(), classLoader);
+    }
+    return switch (first.getSort()) {
+      case Type.BOOLEAN -> boolean.class;
+      case Type.BYTE -> byte.class;
+      case Type.CHAR -> char.class;
+      case Type.SHORT -> short.class;
+      case Type.INT -> int.class;
+      case Type.LONG -> long.class;
+      case Type.FLOAT -> float.class;
+      case Type.DOUBLE -> double.class;
+      default -> null;
+    };
   }
 
   static SerializedLambda trySerializedLambda(final Object lambda) {
@@ -434,7 +643,7 @@ public final class LambdaBytecodeInspector {
     return loadClass(paramDesc.substring(1, paramDesc.length() - 1), classLoader);
   }
 
-  static List<MethodReferenceTarget> listUnaryMethodReferences(
+  static List<MethodReferenceTarget> listLambdaMethodReferences(
       final String capturingClassName, final ClassLoader classLoader) {
     final List<MethodReferenceTarget> targets = new java.util.ArrayList<>();
     try {
@@ -467,7 +676,7 @@ public final class LambdaBytecodeInspector {
                       if (!(arg instanceof Handle handle)) {
                         continue;
                       }
-                      if (!isUnaryFunctionalDescriptor(handle.getDesc())) {
+                      if (!isFunctionalDescriptor(handle.getDesc())) {
                         continue;
                       }
                       targets.add(
@@ -483,6 +692,19 @@ public final class LambdaBytecodeInspector {
       return List.of();
     }
     return targets;
+  }
+
+  static List<MethodReferenceTarget> listUnaryMethodReferences(
+      final String capturingClassName, final ClassLoader classLoader) {
+    return listLambdaMethodReferences(capturingClassName, classLoader);
+  }
+
+  static boolean isFunctionalDescriptor(final String desc) {
+    if (desc == null || !desc.startsWith("(")) {
+      return false;
+    }
+    final int close = desc.indexOf(')');
+    return close > 0 && close < desc.length() - 1;
   }
 
   static String capturingClassName(final Class<?> lambdaClass) {
@@ -513,7 +735,7 @@ public final class LambdaBytecodeInspector {
       return Set.of();
     }
     final List<MethodReferenceTarget> targets =
-        listUnaryMethodReferences(capturingClassName, callback.getClass().getClassLoader());
+        listLambdaMethodReferences(capturingClassName, callback.getClass().getClassLoader());
     if (targets.isEmpty()) {
       return Set.of();
     }

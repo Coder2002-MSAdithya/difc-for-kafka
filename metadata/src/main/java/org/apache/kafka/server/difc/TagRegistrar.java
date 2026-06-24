@@ -292,10 +292,15 @@ public class TagRegistrar
 
     public int enqueueCapabilityRequest(String targetClientId, String tagName, Capability cap, String fromClientId)
     {
+        return enqueueCapabilityRequest(targetClientId, tagName, cap, fromClientId, null);
+    }
+
+    public int enqueueCapabilityRequest(String targetClientId, String tagName, Capability cap, String fromClientId, byte[] attestedPolicyBytes)
+    {
         ClientDIFCPrivs targetClient = getClient(targetClientId);
         if (targetClient == null) return DIFCConstants.ERR_CLIENT_NOT_FOUND;
 
-        return targetClient.addCapabilityRequest(tagName, cap, fromClientId);
+        return targetClient.addCapabilityRequest(tagName, cap, fromClientId, attestedPolicyBytes);
     }
 
     public CapabilityRequest pollCapabilityRequest(String clientId)

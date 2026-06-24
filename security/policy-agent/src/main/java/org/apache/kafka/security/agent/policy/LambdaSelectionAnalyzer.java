@@ -36,6 +36,13 @@ public final class LambdaSelectionAnalyzer {
         LambdaBytecodeInspector.resolveCallbackMethod(predicate);
     if (resolved != null) {
       try {
+        final Class<?> cls =
+            LambdaBytecodeInspector.loadClass(resolved.ownerClass(), predicate.getClass().getClassLoader());
+        final MethodNode method =
+            cls == null
+                ? null
+                : LambdaBytecodeInspector.findMethodNode(
+                    cls, resolved.methodName(), resolved.methodDesc());
         final Set<String> fields =
             LambdaBytecodeInspector.analyzeMethodSelection(
                 resolved.ownerClass(),
@@ -43,8 +50,11 @@ public final class LambdaSelectionAnalyzer {
                 resolved.methodDesc(),
                 predicate.getClass().getClassLoader());
         if (!fields.isEmpty()) {
-          return OperatorCallbackEffect.selection(
-              fields, LambdaBytecodeInspector.buildSelectionExpression(fields));
+          final String expression =
+              method == null
+                  ? LambdaBytecodeInspector.buildSelectionExpression(fields)
+                  : LambdaBytecodeInspector.buildPredicateExpression(method);
+          return OperatorCallbackEffect.selection(fields, expression);
         }
       } catch (final Exception ignored) {
         // fall through
@@ -55,7 +65,7 @@ public final class LambdaSelectionAnalyzer {
       final Set<String> fields = LambdaBytecodeInspector.extractSelectionFieldReferences(functional);
       if (!fields.isEmpty()) {
         return OperatorCallbackEffect.selection(
-            fields, LambdaBytecodeInspector.buildSelectionExpression(fields));
+            fields, LambdaBytecodeInspector.buildPredicateExpression(functional));
       }
     }
     return OperatorCallbackEffect.empty();

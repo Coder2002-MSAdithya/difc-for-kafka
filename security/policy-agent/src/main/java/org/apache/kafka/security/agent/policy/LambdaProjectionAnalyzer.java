@@ -5,6 +5,7 @@ import org.objectweb.asm.tree.MethodNode;
 import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -118,14 +119,26 @@ public final class LambdaProjectionAnalyzer {
     if (sampleInput == null) {
       final String capturingClassName = LambdaBytecodeInspector.capturingClassName(mapper.getClass());
       if (capturingClassName != null) {
-        for (final LambdaBytecodeInspector.MethodReferenceTarget target :
-            LambdaBytecodeInspector.listUnaryMethodReferences(
-                capturingClassName, mapper.getClass().getClassLoader())) {
-          final Class<?> candidate =
-              LambdaBytecodeInspector.parameterTypeFromDesc(target.desc(), mapper.getClass().getClassLoader());
-          sampleInput = safeCreateSampleValue(candidate);
-          if (sampleInput != null) {
-            break;
+        final int ordinal =
+            LambdaBytecodeInspector.ordinalForCallback(mapper, capturingClassName);
+        final List<LambdaBytecodeInspector.MethodReferenceTarget> targets =
+            LambdaBytecodeInspector.listLambdaMethodReferences(
+                capturingClassName, mapper.getClass().getClassLoader());
+        if (ordinal >= 0 && ordinal < targets.size()) {
+          sampleInput =
+              safeCreateSampleValue(
+                  LambdaBytecodeInspector.firstParameterTypeFromDesc(
+                      targets.get(ordinal).desc(), mapper.getClass().getClassLoader()));
+        }
+        if (sampleInput == null) {
+          for (final LambdaBytecodeInspector.MethodReferenceTarget target : targets) {
+            final Class<?> candidate =
+                LambdaBytecodeInspector.firstParameterTypeFromDesc(
+                    target.desc(), mapper.getClass().getClassLoader());
+            sampleInput = safeCreateSampleValue(candidate);
+            if (sampleInput != null) {
+              break;
+            }
           }
         }
       }
@@ -285,6 +298,15 @@ public final class LambdaProjectionAnalyzer {
       return 1.0f;
     }
     try {
+      final java.lang.reflect.Constructor<?>[] constructors = type.getDeclaredConstructors();
+      for (final java.lang.reflect.Constructor<?> constructor : constructors) {
+        final Object[] args = defaultArgsFor(constructor.getParameterTypes());
+        if (args == null) {
+          continue;
+        }
+        constructor.setAccessible(true);
+        return constructor.newInstance(args);
+      }
       final Object fromBuilder = tryBuilderSample(type);
       if (fromBuilder != null) {
         return fromBuilder;
@@ -298,6 +320,50 @@ public final class LambdaProjectionAnalyzer {
     } catch (final ReflectiveOperationException ignored) {
       return null;
     }
+  }
+
+  private static Object[] defaultArgsFor(final Class<?>[] parameterTypes) {
+    if (parameterTypes == null) {
+      return null;
+    }
+    final Object[] args = new Object[parameterTypes.length];
+    for (int i = 0; i < parameterTypes.length; i++) {
+      final Object value = primitiveOrSample(parameterTypes[i]);
+      if (value == null && parameterTypes[i].isPrimitive()) {
+        return null;
+      }
+      args[i] = value;
+    }
+    return args;
+  }
+
+  private static Object primitiveOrSample(final Class<?> type) {
+    if (type == String.class) {
+      return "sample";
+    }
+    if (type.isEnum()) {
+      final Object[] constants = type.getEnumConstants();
+      return constants != null && constants.length > 0 ? constants[0] : null;
+    }
+    if (type == int.class || type == Integer.class) {
+      return 1;
+    }
+    if (type == long.class || type == Long.class) {
+      return 1L;
+    }
+    if (type == boolean.class || type == Boolean.class) {
+      return false;
+    }
+    if (type == double.class || type == Double.class) {
+      return 1.0d;
+    }
+    if (type == float.class || type == Float.class) {
+      return 1.0f;
+    }
+    if (type.getPackageName() != null && type.getPackageName().startsWith("java.")) {
+      return null;
+    }
+    return safeCreateSampleValue(type);
   }
 
   private static Object tryBuilderSample(final Class<?> type) {

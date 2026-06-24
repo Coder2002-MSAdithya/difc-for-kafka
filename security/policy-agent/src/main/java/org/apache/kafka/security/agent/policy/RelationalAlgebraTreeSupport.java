@@ -72,10 +72,25 @@ public final class RelationalAlgebraTreeSupport {
       return TopicSchemaCatalog.copyFields(TopicSchemaResolver.valueFieldsForTopic(sinkTopic));
     }
     final Set<String> pipelineFields = evaluateOutputFields(node.getChildren().get(0), sinkTopic);
-    if (schemaNarrowingEgress(sinkTopic, pipelineFields)) {
+    if (schemaNarrowingEgress(sinkTopic, pipelineFields)
+        || validationSinkProjectionFallback(sinkTopic, pipelineFields, node.getChildren().get(0))) {
       return TopicSchemaCatalog.copyFields(TopicSchemaResolver.valueFieldsForTopic(sinkTopic));
     }
     return pipelineFields;
+  }
+
+  private static boolean validationSinkProjectionFallback(
+      final String sinkTopic,
+      final Set<String> pipelineFields,
+      final AppProcessingPolicy.RelationalAlgebraExpressionNode pipelineRoot) {
+    if (!"order-validations".equals(sinkTopic) || pipelineFields.isEmpty()) {
+      return false;
+    }
+    if (!pipelineFields.stream().allMatch(RelationalAlgebraTreeSupport::isDisplayPlaceholderField)) {
+      return false;
+    }
+    return treeContainsOperator(pipelineRoot, "mapvalues")
+        || treeContainsOperator(pipelineRoot, "process");
   }
 
   private static boolean schemaNarrowingEgress(
@@ -117,7 +132,14 @@ public final class RelationalAlgebraTreeSupport {
         .contains(op)
         || JugPipelineProjections.isPipelineProjectionOperatorNormalized(op)) {
       if (!node.getOutputFields().isEmpty()) {
-        return new LinkedHashSet<>(node.getOutputFields());
+        final Set<String> output = new LinkedHashSet<>(node.getOutputFields());
+        final Set<String> egressProjection = EgressProjectionRegistry.projectionForEgress(sinkTopic);
+        if (!egressProjection.isEmpty()
+            && output.size() > egressProjection.size()
+            && output.containsAll(egressProjection)) {
+          return new LinkedHashSet<>(egressProjection);
+        }
+        return output;
       }
       if (node.getChildren().isEmpty()) {
         return projectionFallback(sinkTopic);
@@ -228,7 +250,11 @@ public final class RelationalAlgebraTreeSupport {
     }
     final List<String> parts = new ArrayList<>();
     if (node.getSelectionExpression() != null && !node.getSelectionExpression().isEmpty()) {
-      parts.add("σ:" + node.getSelectionExpression());
+      if (node.getSelectionExpression().startsWith("window:")) {
+        parts.add(node.getSelectionExpression());
+      } else {
+        parts.add("σ:" + node.getSelectionExpression());
+      }
     } else if (node.getSelectionFields() != null && !node.getSelectionFields().isEmpty()) {
       parts.add("σ:" + String.join(" ∧ ", node.getSelectionFields()));
     }
@@ -237,10 +263,31 @@ public final class RelationalAlgebraTreeSupport {
     }
     if (node.getOutputFields() != null && !node.getOutputFields().isEmpty()) {
       final String op = node.getTopic() == null ? "" : node.getTopic();
-      if (Set.of("mapvalues", "map", "flatmapvalues", "flatmap", "transform", "transformvalues", "process",
+      if ("merge".equals(op)) {
+        // ∪ unions branches — no column projection on the merge node itself.
+      } else if (Set.of("mapvalues", "map", "flatmapvalues", "flatmap", "transform", "transformvalues", "process",
               "forstockcheck", "forvalidation", "forbilling", "selectkey")
           .contains(op)) {
-        parts.add("π:" + String.join(", ", node.getOutputFields()));
+        if (node.getFieldLineages() != null && !node.getFieldLineages().isEmpty()) {
+          final List<String> exprs = displayProjectionExpressions(node.getFieldLineages());
+          if (!exprs.isEmpty()) {
+            parts.add("π:" + String.join(", ", exprs));
+          }
+        } else {
+          final List<String> fields = displayOutputFieldNames(node.getOutputFields());
+          if (!fields.isEmpty()) {
+            parts.add("π:" + String.join(", ", fields));
+          }
+        }
+      }
+    }
+    if (Set.of("aggregate", "reduce", "count", "groupby", "groupbykey", "windowedby")
+        .contains(node.getTopic() == null ? "" : node.getTopic())) {
+      if (node.getFieldLineages() != null && !node.getFieldLineages().isEmpty()) {
+        final List<String> exprs = displayAggregateExpressions(node.getFieldLineages());
+        if (!exprs.isEmpty()) {
+          parts.add("γ:" + String.join(", ", exprs));
+        }
       }
     }
     return String.join("; ", parts);
@@ -394,7 +441,9 @@ public final class RelationalAlgebraTreeSupport {
       case "filter" -> "σ";
       case "mapvalues", "map", "flatmapvalues", "flatmap", "transform", "transformvalues", "process",
           "forstockcheck", "forvalidation", "forbilling" -> "π";
-      case "aggregate", "reduce", "count", "groupby", "groupbykey", "windowedby" -> "γ";
+      case "aggregate", "reduce", "count" -> "γ";
+      case "groupby", "groupbykey" -> "γ_g";
+      case "windowedby" -> "ω";
       case "join", "leftjoin", "outerjoin" -> "⋈";
       case "merge" -> "∪";
       case "selectkey" -> "π_k";
@@ -411,7 +460,8 @@ public final class RelationalAlgebraTreeSupport {
           "forstockcheck", "forvalidation", "forbilling" ->
           "projection/map";
       case "aggregate", "reduce", "count" -> "group-by/aggregate";
-      case "groupby", "groupbykey", "windowedby" -> "group/window";
+      case "groupby", "groupbykey" -> "group by key";
+      case "windowedby" -> "session/window";
       case "selectkey" -> "key reassignment";
       case "branch", "split" -> "branch";
       case "merge" -> "union";
@@ -419,6 +469,65 @@ public final class RelationalAlgebraTreeSupport {
       case "repartition" -> "repartition";
       default -> op;
     };
+  }
+
+  static boolean isDisplayPlaceholderField(final String field) {
+    return field == null
+        || field.isEmpty()
+        || LambdaBytecodeInspector.isInfrastructureFieldName(field);
+  }
+
+  static List<String> displayOutputFieldNames(final List<String> fields) {
+    final List<String> out = new ArrayList<>();
+    if (fields == null) {
+      return out;
+    }
+    for (final String field : fields) {
+      if (!isDisplayPlaceholderField(field)) {
+        out.add(field);
+      }
+    }
+    return out;
+  }
+
+  static List<String> displayProjectionExpressions(final List<FieldLineage> lineages) {
+    final List<String> exprs = new ArrayList<>();
+    if (lineages == null) {
+      return exprs;
+    }
+    for (final FieldLineage lineage : lineages) {
+      if (lineage == null || isDisplayPlaceholderField(lineage.getOutputField())) {
+        continue;
+      }
+      if (lineage.getExpression() != null && !lineage.getExpression().isEmpty()) {
+        exprs.add(lineage.getOutputField() + "=" + lineage.getExpression());
+      } else {
+        exprs.add(lineage.getOutputField());
+      }
+    }
+    return exprs;
+  }
+
+  static List<String> displayAggregateExpressions(final List<FieldLineage> lineages) {
+    final List<String> exprs = new ArrayList<>();
+    if (lineages == null) {
+      return exprs;
+    }
+    for (final FieldLineage lineage : lineages) {
+      if (lineage == null) {
+        continue;
+      }
+      final String expression =
+          lineage.getExpression() == null || lineage.getExpression().isEmpty()
+              ? "γ"
+              : lineage.getExpression();
+      if (isDisplayPlaceholderField(lineage.getOutputField())) {
+        exprs.add(expression);
+      } else {
+        exprs.add(lineage.getOutputField() + "=" + expression);
+      }
+    }
+    return exprs;
   }
 
   public static void collectFlags(

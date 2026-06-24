@@ -1965,7 +1965,15 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
 
     public GrantCapResponseData requestAddCapabilityForTag(String tagName) {return delegate.sendRequestAddCapabilityForTag(tagName);}
 
+    public GrantCapResponseData requestAddCapabilityForTag(String tagName, byte[] attestedPolicy) {
+        return delegate.sendRequestAddCapabilityForTag(tagName, attestedPolicy);
+    }
+
     public GrantCapResponseData requestRemoveCapabilityForTag(String tagName) {return delegate.sendRequestRemoveCapabilityForTag(tagName);}
+
+    public GrantCapResponseData requestRemoveCapabilityForTag(String tagName, byte[] attestedPolicy) {
+        return delegate.sendRequestRemoveCapabilityForTag(tagName, attestedPolicy);
+    }
 
     public DummyResponseData dummyRequest() {return delegate.sendDummyRequest();}
 

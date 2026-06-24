@@ -478,10 +478,12 @@ public final class QuorumController implements Controller {
             ControllerRequestContext context,
             String tagName,
             String capabilityString,
-            String requesterPrincipal
+            String requesterPrincipal,
+            byte[] attestedPolicyBytes
     ) {
         return appendWriteEvent("enqueueCapabilityRequest", context.deadlineNs(),
-                () -> difcControlManager.enqueueCapabilityRequest(tagName, capabilityString, requesterPrincipal));
+                () -> difcControlManager.enqueueCapabilityRequest(
+                        tagName, capabilityString, requesterPrincipal, attestedPolicyBytes));
     }
 
     @Override
@@ -1350,6 +1352,10 @@ public final class QuorumController implements Controller {
                 break;
             case DIFC_TAG_OWNERSHIP_TRANSFERRED_RECORD:
                 difcControlManager.replay((DifcTagOwnershipTransferredRecord) message);
+                break;
+            case DIFC_GRANT_CAP_REQUEST_RECORD:
+                log.info(message.toString());
+                difcControlManager.replay((DifcGrantCapRequestRecord) message);
                 break;
             default:
                 throw new RuntimeException("Unhandled record type " + type);

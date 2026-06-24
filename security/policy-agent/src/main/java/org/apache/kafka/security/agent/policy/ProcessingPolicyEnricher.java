@@ -25,6 +25,10 @@ public final class ProcessingPolicyEnricher {
     JugPipelineProjections.registerEgressProjections();
     EgressProjectionRegistry.register(
         "order-validations", Set.of("orderId", "checkType", "validationResult"));
+    EgressProjectionRegistry.register("payment-orders", Set.of("id", "status", "source"));
+    EgressProjectionRegistry.register("stock-orders", Set.of("id", "status", "source"));
+    EgressProjectionRegistry.register("payments", Set.of("id", "status", "source"));
+    EgressProjectionRegistry.register("stock", Set.of("id", "status", "source"));
     org.apache.kafka.security.agent.AppClientPolicyTracker.mergeInto(policy);
     if (policy.getPrincipal() != null && manifestSupplementEnabled()) {
       final ProcessingPolicyDocument manifest = manifestFor(policy.getPrincipal());
@@ -135,7 +139,11 @@ public final class ProcessingPolicyEnricher {
     ProcessingPolicyGraphHelper.enrichEgressPathsFromGraph(policy);
     ProcessingPolicyGraphHelper.enrichEgressPathsFromSources(policy);
     policy.setAggregationAnalysis(ProcessingPolicyGraphHelper.computeAggregationAnalysis(policy));
-    policy.setRelationalAlgebraAnalysis(RelationalAlgebraExtractor.analyze(policy));
+    final AppProcessingPolicy.RelationalAlgebraAnalysis relational = RelationalAlgebraExtractor.analyze(policy);
+    if (SanitizationAnalysisMode.current().emitTaintReport()) {
+      SourceFieldTaintAnalyzer.annotate(relational);
+    }
+    policy.setRelationalAlgebraAnalysis(relational);
   }
 
   private static ProcessingPolicyDocument manifestFor(final String principal) {
@@ -146,9 +154,9 @@ public final class ProcessingPolicyEnricher {
       case "order-details-svc" -> PolicyManifestRegistry.orderDetailsValidator();
       case "email-svc" -> PolicyManifestRegistry.emailConsumer();
       case "validations-agg-svc" -> PolicyManifestRegistry.validationsAggregator();
-      case "stock-svc" -> PolicyManifestRegistry.stockRepublisher();
-      case "validation-svc" -> PolicyManifestRegistry.validationRepublisher();
-      case "payment-svc" -> PolicyManifestRegistry.paymentRepublisher();
+      case "stock-svc", "jug-stock-svc" -> PolicyManifestRegistry.stockRepublisher();
+      case "validation-svc", "jug-validation-svc" -> PolicyManifestRegistry.validationRepublisher();
+      case "payment-svc", "jug-payment-svc" -> PolicyManifestRegistry.paymentRepublisher();
       default -> null;
     };
   }
@@ -235,6 +243,10 @@ public final class ProcessingPolicyEnricher {
           new AppProcessingPolicy.OperatorCallbackProjection();
       projection.setOperator(manifestCallback.getOperator());
       projection.setOutputFields(new ArrayList<>(manifestCallback.getOutputFields()));
+      projection.setSelectionFields(new ArrayList<>(manifestCallback.getSelectionFields()));
+      projection.setSelectionExpression(manifestCallback.getSelectionExpression());
+      projection.setKeyFields(new ArrayList<>(manifestCallback.getKeyFields()));
+      projection.setFieldLineages(new ArrayList<>(manifestCallback.getFieldLineages()));
       callbacks.add(projection);
     }
     return callbacks;
@@ -251,17 +263,9 @@ public final class ProcessingPolicyEnricher {
   private static List<AppProcessingPolicy.OperatorCallbackProjection> mergeCallbackProjections(
       final AppProcessingPolicy.EgressPath left,
       final AppProcessingPolicy.EgressPath right) {
-    if (right.getCallbackProjections().isEmpty()) {
-      return left.getCallbackProjections() == null
-          ? new ArrayList<>()
-          : new ArrayList<>(left.getCallbackProjections());
-    }
-    final List<AppProcessingPolicy.OperatorCallbackProjection> merged = new ArrayList<>();
-    if (left.getCallbackProjections() != null) {
-      merged.addAll(left.getCallbackProjections());
-    }
-    merged.addAll(right.getCallbackProjections());
-    return merged;
+    return OperatorCallbackProjectionSupport.mergePreferringLive(
+        left == null ? List.of() : left.getCallbackProjections(),
+        right == null ? List.of() : right.getCallbackProjections());
   }
 
   private static void mergeManifestGraph(
